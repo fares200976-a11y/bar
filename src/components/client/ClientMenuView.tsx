@@ -1,0 +1,668 @@
+import React, { useState } from 'react';
+import {
+  Search,
+  Flame,
+  Star,
+  Clock,
+  Plus,
+  Minus,
+  ShoppingCart,
+  Bell,
+  Receipt,
+  Check,
+  Info,
+  X,
+  Play,
+  AlertCircle,
+  Tag,
+  Sparkles,
+  KeyRound,
+  ShieldCheck,
+  QrCode
+} from 'lucide-react';
+import { Category, MenuItem, Order, Table, Waiter, RestaurantSettings } from '../../types';
+import { formatCurrency } from '../../utils/formatters';
+import { store } from '../../services/store';
+
+interface ClientMenuViewProps {
+  table: Table;
+  categories: Category[];
+  menu: MenuItem[];
+  activeOrder?: Order;
+  waiter?: Waiter;
+  settings: RestaurantSettings;
+  onAddToCart: (item: MenuItem, quantity: number, notes?: string) => void;
+  onCallWaiter: () => void;
+  onRequestBill: () => void;
+  onOpenCart: () => void;
+  onOpenStatusModal: () => void;
+  cartItemCount: number;
+  cartTotal: number;
+}
+
+export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
+  table,
+  categories,
+  menu,
+  activeOrder,
+  waiter,
+  settings,
+  onAddToCart,
+  onCallWaiter,
+  onRequestBill,
+  onOpenCart,
+  onOpenStatusModal,
+  cartItemCount,
+  cartTotal,
+}) => {
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
+  const [itemQuantity, setItemQuantity] = useState(1);
+  const [itemNotes, setItemNotes] = useState('');
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [callSent, setCallSent] = useState(false);
+  const [billSent, setBillSent] = useState(false);
+
+  // 4-digit QR Code Verification State
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinSuccess, setPinSuccess] = useState(false);
+
+  const handleVerifyPinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinError('');
+    if (!pinInput || pinInput.trim().length !== 4) {
+      setPinError('Veuillez saisir exactement les 4 chiffres du QR Code.');
+      return;
+    }
+    const isSuccess = store.verifyAndOccupyTable(table.id, pinInput.trim());
+    if (isSuccess) {
+      setPinSuccess(true);
+      setPinInput('');
+      setTimeout(() => setPinSuccess(false), 5000);
+    } else {
+      setPinError('Code à 4 chiffres incorrect pour cette table.');
+    }
+  };
+
+  // Filter menu
+  const filteredMenu = menu.filter((item) => {
+    const matchesCategory = selectedCategoryId === 'all' || item.categoryId === selectedCategoryId;
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const handleCallWaiterClick = () => {
+    onCallWaiter();
+    setCallSent(true);
+    setTimeout(() => setCallSent(false), 4000);
+  };
+
+  const handleRequestBillClick = () => {
+    onRequestBill();
+    setBillSent(true);
+    setTimeout(() => setBillSent(false), 4000);
+  };
+
+  const openItemDetailModal = (item: MenuItem) => {
+    setSelectedMenuItem(item);
+    setItemQuantity(1);
+    setItemNotes('');
+    setActiveImageIdx(0);
+  };
+
+  // Confirmation state before adding item to cart
+  const [showConfirmAdd, setShowConfirmAdd] = useState(false);
+
+  const handleAddFromModal = () => {
+    if (selectedMenuItem) {
+      setShowConfirmAdd(true);
+    }
+  };
+
+  const handleFinalConfirmAdd = () => {
+    if (selectedMenuItem) {
+      onAddToCart(selectedMenuItem, itemQuantity, itemNotes);
+      setSelectedMenuItem(null);
+      setShowConfirmAdd(false);
+    }
+  };
+
+  return (
+    <div className="pb-28 pt-2">
+      {/* Table Welcome Banner */}
+      <div className="bg-[#5A5A40] rounded-3xl p-6 text-[#F5F2ED] shadow-md mb-6 relative overflow-hidden border border-[#484833]">
+        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-[11px] font-medium tracking-wide uppercase mb-2 text-[#E2E0D8]">
+              <Sparkles className="w-3.5 h-3.5 text-[#E0B580]" />
+              <span>Commande Directe • Table {table.number}</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-serif font-normal tracking-wide">
+              Bienvenue à la Table {table.number}
+            </h2>
+            <p className="text-[#D1CECB] text-xs sm:text-sm mt-1 max-w-lg font-light">
+              Découvrez notre carte gastronomique. Vos plats et rafraîchissements seront préparés à la commande.
+            </p>
+
+            {waiter && (
+              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/10">
+                <img
+                  src={waiter.photo}
+                  alt={waiter.name}
+                  className="w-7 h-7 rounded-full object-cover border border-white/30"
+                />
+                <p className="text-xs text-[#E2E0D8]">
+                  Votre serveur dédié : <span className="font-semibold text-white">{waiter.name}</span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Table Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              onClick={handleCallWaiterClick}
+              disabled={callSent}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-medium transition-all shadow-xs ${
+                callSent
+                  ? 'bg-[#486349] text-white'
+                  : 'bg-[#F5F2ED] text-[#5A5A40] hover:bg-white active:scale-95'
+              }`}
+            >
+              <Bell className="w-4 h-4" />
+              <span>{callSent ? 'Serveur Appelé !' : 'Appeler le serveur'}</span>
+            </button>
+
+            <button
+              onClick={handleRequestBillClick}
+              disabled={billSent}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-medium transition-all shadow-xs ${
+                billSent
+                  ? 'bg-[#486349] text-white'
+                  : 'bg-[#1A1A1A] text-white hover:bg-[#2A2A2A] active:scale-95'
+              }`}
+            >
+              <Receipt className="w-4 h-4" />
+              <span>{billSent ? 'Demande envoyée !' : "Demander l'addition"}</span>
+            </button>
+
+            {activeOrder && activeOrder.status !== 'terminee' && (
+              <button
+                onClick={onOpenStatusModal}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-medium bg-[#D95D39] text-white hover:bg-[#C24E2B] transition-all shadow-xs active:scale-95 animate-pulse"
+              >
+                <Clock className="w-4 h-4" />
+                <span>Suivre ma commande ({activeOrder.items.length})</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 4-Digit QR Security Code Entry / Status Banner */}
+      <div className="mb-6 p-4 rounded-3xl bg-white dark:bg-[#1C1C16] border border-[#E5E2DD] dark:border-[#33332A] shadow-xs">
+        {table.status === 'occupee' || pinSuccess ? (
+          <div className="flex items-center justify-between gap-3 text-emerald-700 dark:text-emerald-400">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider">
+                  Table {table.number} — Occupée & Validée
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Un signal sonore (2 bips) a été transmis au serveur et à l'administrateur.
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-extrabold px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800 shrink-0">
+              OCCUPÉE
+            </span>
+          </div>
+        ) : (
+          <form onSubmit={handleVerifyPinSubmit} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <span>Validation du Code QR (4 Chiffres)</span>
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Saisissez le code affiché sur le QR Code de votre table pour la déclarer occupée.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <input
+                type="text"
+                maxLength={4}
+                placeholder="Ex: 4821"
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+                className="w-28 text-center text-base font-bold font-mono tracking-widest bg-slate-50 dark:bg-[#26261E] text-slate-900 dark:text-white py-2.5 px-3 rounded-2xl border border-slate-200 dark:border-[#33332A] focus:outline-none focus:ring-2 focus:ring-[#5A5A40]"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2.5 bg-[#5A5A40] hover:bg-[#484833] text-white text-xs font-bold rounded-2xl shadow-xs transition-all whitespace-nowrap"
+              >
+                Valider & Occuper
+              </button>
+            </div>
+            {pinError && (
+              <p className="text-xs font-semibold text-rose-500 w-full mt-1 sm:mt-0">{pinError}</p>
+            )}
+          </form>
+        )}
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-[#9A948C] absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Rechercher un plat, une boisson, un ingrédient..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white dark:bg-[#1C1C16] text-[#1A1A1A] dark:text-white placeholder-[#9A948C] text-sm py-3 pl-10 pr-4 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A] focus:outline-none focus:ring-2 focus:ring-[#5A5A40] shadow-2xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A948C] hover:text-[#1A1A1A]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Category Horizontal Slider */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
+        <button
+          onClick={() => setSelectedCategoryId('all')}
+          className={`px-4 py-2 rounded-2xl text-xs font-medium whitespace-nowrap transition-all ${
+            selectedCategoryId === 'all'
+              ? 'bg-[#5A5A40] text-white shadow-2xs font-semibold'
+              : 'bg-white dark:bg-[#1C1C16] text-[#9A948C] border border-[#E5E2DD] dark:border-[#33332A] hover:bg-[#F5F2ED] dark:hover:bg-[#26261E]'
+          }`}
+        >
+          Tous les produits
+        </button>
+        {categories.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => setSelectedCategoryId(cat.id)}
+            className={`px-4 py-2 rounded-2xl text-xs font-medium whitespace-nowrap transition-all ${
+              selectedCategoryId === cat.id
+                ? 'bg-[#5A5A40] text-white shadow-2xs font-semibold'
+                : 'bg-white dark:bg-[#1C1C16] text-[#9A948C] border border-[#E5E2DD] dark:border-[#33332A] hover:bg-[#F5F2ED] dark:hover:bg-[#26261E]'
+            }`}
+          >
+            {cat.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Menu Grid */}
+      {filteredMenu.length === 0 ? (
+        <div className="text-center py-16 bg-white dark:bg-[#1C1C16] rounded-3xl border border-[#E5E2DD] dark:border-[#33332A] p-8">
+          <AlertCircle className="w-12 h-12 text-[#9A948C] mx-auto mb-3" />
+          <h3 className="text-base font-serif font-semibold text-[#5A5A40] dark:text-[#E2E0D8]">Aucun produit trouvé</h3>
+          <p className="text-xs text-[#9A948C] mt-1">Essayez un autre terme de recherche ou changez de catégorie.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredMenu.map((item) => {
+            const isOutOfStock = !item.isAvailable || item.stockQuantity <= 0;
+            const displayPrice = item.isPromo && item.promoPrice ? item.promoPrice : item.price;
+
+            return (
+              <div
+                key={item.id}
+                onClick={() => !isOutOfStock && openItemDetailModal(item)}
+                className={`group relative bg-white dark:bg-[#1C1C16] rounded-3xl border border-[#E5E2DD] dark:border-[#33332A] overflow-hidden shadow-2xs hover:shadow-md transition-all duration-300 flex flex-col justify-between ${
+                  isOutOfStock ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:-translate-y-0.5'
+                }`}
+              >
+                <div>
+                  {/* Photo Banner */}
+                  <div className="relative aspect-16/10 overflow-hidden bg-[#F5F2ED] dark:bg-[#26261E]">
+                    <img
+                      src={item.images[0] || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c'}
+                      alt={item.name}
+                      className={`w-full h-full object-cover transition-transform duration-500 ${
+                        !isOutOfStock && 'group-hover:scale-105'
+                      }`}
+                    />
+
+                    {/* Badges Overlay */}
+                    <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5 z-10">
+                      {item.isRecommended && (
+                        <span className="bg-[#5A5A40] text-white text-[10px] font-medium uppercase tracking-wider px-2.5 py-1 rounded-full shadow-2xs flex items-center gap-1">
+                          <Star className="w-3 h-3 fill-white" /> Chef
+                        </span>
+                      )}
+                      {item.isPromo && (
+                        <span className="bg-[#D95D39] text-white text-[10px] font-medium uppercase tracking-wider px-2.5 py-1 rounded-full shadow-2xs flex items-center gap-1">
+                          <Tag className="w-3 h-3" /> Promo
+                        </span>
+                      )}
+                      {item.isSpicy && (
+                        <span className="bg-[#C24E2B] text-white text-[10px] font-medium uppercase tracking-wider px-2.5 py-1 rounded-full shadow-2xs flex items-center gap-1">
+                          <Flame className="w-3 h-3" /> Épicé
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Prep Time badge */}
+                    <div className="absolute bottom-3 right-3 bg-[#1A1A1A]/80 text-white text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-md flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-[#E0B580]" />
+                      <span>{item.prepTimeMinutes} min</span>
+                    </div>
+
+                    {/* Out of stock Overlay */}
+                    {isOutOfStock && (
+                      <div className="absolute inset-0 bg-[#12120E]/70 backdrop-blur-xs flex items-center justify-center p-4">
+                        <span className="bg-[#D95D39] text-white font-medium text-xs px-3 py-1.5 rounded-full shadow-lg">
+                          Rupture de stock
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="p-5">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-serif font-semibold text-[#1A1A1A] dark:text-white text-lg group-hover:text-[#5A5A40] transition-colors">
+                        {item.name}
+                      </h3>
+                    </div>
+
+                    <p className="text-xs text-[#9A948C] dark:text-[#A8A49C] mt-1.5 line-clamp-2 leading-relaxed">
+                      {item.description}
+                    </p>
+
+                    {/* Allergens badges */}
+                    {item.allergens.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-3">
+                        {item.allergens.map((alg) => (
+                          <span
+                            key={alg}
+                            className="text-[9px] bg-[#F5F2ED] dark:bg-[#26261E] text-[#9A948C] px-2 py-0.5 rounded-md border border-[#E5E2DD] dark:border-[#33332A]"
+                          >
+                            {alg}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Footer Price & Add Button */}
+                <div className="p-5 pt-0 flex items-center justify-between border-t border-[#E5E2DD] dark:border-[#33332A] mt-2">
+                  <div className="pt-3">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-serif font-bold text-[#5A5A40] dark:text-[#E2E0D8] text-xl">
+                        {formatCurrency(displayPrice, settings.currency)}
+                      </span>
+                      {item.isPromo && item.promoPrice && (
+                        <span className="text-xs text-[#9A948C] line-through">
+                          {formatCurrency(item.price, settings.currency)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isOutOfStock) onAddToCart(item, 1);
+                    }}
+                    disabled={isOutOfStock}
+                    className={`p-3 rounded-2xl font-bold transition-all ${
+                      isOutOfStock
+                        ? 'bg-[#F5F2ED] dark:bg-[#26261E] text-[#9A948C] cursor-not-allowed'
+                        : 'bg-[#5A5A40] hover:bg-[#484833] text-white shadow-2xs active:scale-95'
+                    }`}
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Floating Bottom Cart Bar */}
+      {cartItemCount > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg w-[92%] bg-[#5A5A40] text-white rounded-3xl p-3 pl-5 shadow-xl flex items-center justify-between border border-[#E5E2DD]/20">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center font-bold text-sm">
+              {cartItemCount}
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-white/80">Panier Table {table.number}</p>
+              <p className="text-base font-serif font-semibold">{formatCurrency(cartTotal, settings.currency)}</p>
+            </div>
+          </div>
+
+          <button
+            onClick={onOpenCart}
+            className="flex items-center gap-2 bg-[#F5F2ED] text-[#5A5A40] px-5 py-3 rounded-2xl font-semibold text-xs hover:bg-white transition-colors shadow-2xs"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            <span>Voir le Panier</span>
+          </button>
+        </div>
+      )}
+
+      {/* Item Detail Modal with Gallery & Notes */}
+      {selectedMenuItem && (
+        <div className="fixed inset-0 z-50 bg-[#12120E]/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-[#1C1C16] w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border border-[#E5E2DD] dark:border-[#33332A] my-8">
+            {/* Header Image Gallery */}
+            <div className="relative aspect-16/10 bg-[#F5F2ED] dark:bg-[#26261E]">
+              <img
+                src={
+                  selectedMenuItem.images[activeImageIdx] ||
+                  selectedMenuItem.images[0] ||
+                  'https://images.unsplash.com/photo-1546069901-ba9599a7e63c'
+                }
+                alt={selectedMenuItem.name}
+                className="w-full h-full object-cover"
+              />
+
+              <button
+                onClick={() => setSelectedMenuItem(null)}
+                className="absolute top-4 right-4 p-2 bg-[#1A1A1A]/70 hover:bg-[#1A1A1A] text-white rounded-full transition-colors z-20"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Thumbnails if multiple images */}
+              {selectedMenuItem.images.length > 1 && (
+                <div className="absolute bottom-3 left-4 right-4 flex items-center gap-2 overflow-x-auto p-1 bg-[#12120E]/40 rounded-xl backdrop-blur-xs">
+                  {selectedMenuItem.images.map((img, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveImageIdx(idx)}
+                      className={`w-12 h-10 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${
+                        activeImageIdx === idx ? 'border-[#5A5A40] scale-105' : 'border-transparent opacity-70'
+                      }`}
+                    >
+                      <img src={img} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-2xl font-serif font-semibold text-[#5A5A40] dark:text-[#E2E0D8]">{selectedMenuItem.name}</h3>
+                  <span className="text-xl font-serif font-bold text-[#5A5A40] dark:text-white">
+                    {formatCurrency(
+                      selectedMenuItem.isPromo && selectedMenuItem.promoPrice
+                        ? selectedMenuItem.promoPrice
+                        : selectedMenuItem.price,
+                      settings.currency
+                    )}
+                  </span>
+                </div>
+                <p className="text-xs text-[#9A948C] dark:text-[#A8A49C] mt-2 leading-relaxed">
+                  {selectedMenuItem.description}
+                </p>
+              </div>
+
+              {/* Video Preview if provided */}
+              {selectedMenuItem.videoUrl && (
+                <div className="p-3 bg-[#F5F2ED] dark:bg-[#26261E] rounded-2xl border border-[#E5E2DD] dark:border-[#33332A] flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-medium text-[#5A5A40] dark:text-[#D1CECB]">
+                    <Play className="w-4 h-4 fill-[#5A5A40]" />
+                    <span>Vidéo de présentation du plat</span>
+                  </div>
+                  <a
+                    href={selectedMenuItem.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-semibold text-[#5A5A40] hover:underline"
+                  >
+                    Visionner
+                  </a>
+                </div>
+              )}
+
+              {/* Allergens & Prep time */}
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[#9A948C]">
+                <span className="flex items-center gap-1 bg-[#F5F2ED] dark:bg-[#26261E] px-3 py-1 rounded-xl border border-[#E5E2DD] dark:border-[#33332A]">
+                  <Clock className="w-3.5 h-3.5 text-[#E0B580]" /> Temps : {selectedMenuItem.prepTimeMinutes} min
+                </span>
+                {selectedMenuItem.allergens.length > 0 && (
+                  <span className="flex items-center gap-1 bg-[#F5F2ED] dark:bg-[#26261E] px-3 py-1 rounded-xl border border-[#E5E2DD] dark:border-[#33332A]">
+                    <Info className="w-3.5 h-3.5 text-[#D95D39]" /> Allergènes : {selectedMenuItem.allergens.join(', ')}
+                  </span>
+                )}
+              </div>
+
+              {/* Special Instructions / Remarques */}
+              <div>
+                <label className="block text-xs font-semibold text-[#5A5A40] dark:text-[#D1CECB] mb-1">
+                  Remarques ou instructions spéciales pour le chef :
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Sans oignons, Peu salé, Sauce à part, Bien cuit..."
+                  value={itemNotes}
+                  onChange={(e) => setItemNotes(e.target.value)}
+                  className="w-full bg-[#F5F2ED] dark:bg-[#26261E] text-[#1A1A1A] dark:text-white text-xs p-3 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A] focus:outline-none focus:ring-2 focus:ring-[#5A5A40]"
+                />
+              </div>
+
+              {/* Quantity Selector & Add Button */}
+              <div className="flex items-center justify-between pt-3 border-t border-[#E5E2DD] dark:border-[#33332A]">
+                <div className="flex items-center gap-3 bg-[#F5F2ED] dark:bg-[#26261E] p-1.5 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A]">
+                  <button
+                    onClick={() => setItemQuantity(Math.max(1, itemQuantity - 1))}
+                    className="p-2 text-[#5A5A40] dark:text-[#D1CECB] hover:bg-white dark:hover:bg-[#1C1C16] rounded-xl transition-colors"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <span className="font-bold text-[#1A1A1A] dark:text-white text-sm px-2">
+                    {itemQuantity}
+                  </span>
+                  <button
+                    onClick={() => setItemQuantity(itemQuantity + 1)}
+                    className="p-2 text-[#5A5A40] dark:text-[#D1CECB] hover:bg-white dark:hover:bg-[#1C1C16] rounded-xl transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleAddFromModal}
+                  className="flex-1 ml-4 bg-[#5A5A40] hover:bg-[#484833] text-white py-3.5 px-6 rounded-2xl font-medium text-xs flex items-center justify-center gap-2 shadow-2xs active:scale-95 transition-all"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    Ajouter au panier •{' '}
+                    {formatCurrency(
+                      (selectedMenuItem.isPromo && selectedMenuItem.promoPrice
+                        ? selectedMenuItem.promoPrice
+                        : selectedMenuItem.price) * itemQuantity,
+                      settings.currency
+                    )}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal Before Adding to Cart */}
+      {showConfirmAdd && selectedMenuItem && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl border-2 border-emerald-500 space-y-4 animate-scale-up text-center">
+            <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto">
+              <Check className="w-8 h-8" />
+            </div>
+
+            <div>
+              <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">Confirmer votre Choix</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Souhaitez-vous vraiment ajouter cet article à votre commande ?
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-left space-y-1">
+              <p className="font-bold text-slate-900 dark:text-white text-sm">
+                {itemQuantity}x {selectedMenuItem.name}
+              </p>
+              {itemNotes && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 italic">
+                  Note: "{itemNotes}"
+                </p>
+              )}
+              <p className="text-sm font-black text-rose-600 dark:text-rose-400 mt-2">
+                Total : {formatCurrency(
+                  (selectedMenuItem.isPromo && selectedMenuItem.promoPrice
+                    ? selectedMenuItem.promoPrice
+                    : selectedMenuItem.price) * itemQuantity,
+                  settings.currency
+                )}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setShowConfirmAdd(false)}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-white rounded-2xl font-bold text-xs transition-colors"
+              >
+                Modifier
+              </button>
+              <button
+                onClick={handleFinalConfirmAdd}
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
+              >
+                Oui, Confirmer !
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

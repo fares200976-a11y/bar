@@ -1,0 +1,6 @@
+{
+  "name": "Bar Restaurant QR & POS",
+  "description": "Application web complète de commande QR Code, gestion de caisse, cuisine et administration pour bar-restaurant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

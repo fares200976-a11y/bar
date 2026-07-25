@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #F9F8F6;
+    color: #1A1A1A;
+  }
+
+  .font-serif {
+    font-family: 'Cormorant Garamond', Georgia, Cambria, serif;
+  }
+}
+
+/* Natural Tones Theme Utilities */
+.bg-stone-canvas { background-color: #F9F8F6; }
+.bg-cream-card { background-color: #FFFFFF; }
+.bg-cream-muted { background-color: #F5F2ED; }
+.bg-stone-soft { background-color: #F1F0EC; }
+
+.bg-olive-primary { background-color: #5A5A40; }
+.bg-olive-hover { background-color: #484833; }
+.bg-olive-light { background-color: #EDEDE6; }
+
+.text-olive-primary { color: #5A5A40; }
+.text-taupe-muted { color: #9A948C; }
+.text-terracotta { color: #D95D39; }
+
+.border-stone-natural { border-color: #E5E2DD; }
+.border-olive-primary { border-color: #5A5A40; }
+
+/* Custom Dark mode for Natural Tones */
+.dark body {
+  background-color: #12120E;
+  color: #E2E0D8;
+}
+
+.dark .bg-stone-canvas { background-color: #12120E; }
+.dark .bg-cream-card { background-color: #1C1C16; }
+.dark .bg-cream-muted { background-color: #26261E; }
+.dark .bg-stone-soft { background-color: #2A2A22; }
+.dark .border-stone-natural { border-color: #33332A; }
