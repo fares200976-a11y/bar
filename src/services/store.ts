@@ -91,14 +91,28 @@ let state: AppState = loadState();
 type Listener = (state: AppState) => void;
 const listeners = new Set<Listener>();
 
+// Mémorise l'id de la dernière alarme pour laquelle le son a été (re)lancé,
+// afin de ne PAS relancer l'audio depuis zéro à chaque action du store
+// (ex : changer un plat de disponibilité) alors que l'alarme est déjà en cours.
+let lastSyncedAlarmId: string | null = null;
+
 function syncAlarmAudio() {
-  if (state.activeAlarm && state.settings.enableLoopAlarm !== false) {
-    startContinuousAlarm(
-      state.settings.alarmSoundType || 'mp3_alarm_clock',
-      state.settings.customAudioUrl || '',
-      state.settings.alarmVolume ?? 0.8
-    );
+  const currentAlarmId = state.activeAlarm?.id ?? null;
+
+  if (currentAlarmId && state.settings.enableLoopAlarm !== false) {
+    if (currentAlarmId !== lastSyncedAlarmId) {
+      // Nouvelle alarme (ou premier chargement) : on (re)démarre le son en boucle.
+      lastSyncedAlarmId = currentAlarmId;
+      startContinuousAlarm(
+        state.settings.alarmSoundType || 'mp3_alarm_clock',
+        state.settings.customAudioUrl || '',
+        state.settings.alarmVolume ?? 0.8
+      );
+    }
+    // Sinon : c'est toujours la même alarme, on laisse la boucle déjà en cours
+    // continuer sans la relancer.
   } else {
+    lastSyncedAlarmId = null;
     stopContinuousAlarm();
   }
 }
@@ -305,12 +319,70 @@ export const store = {
       `Table ${tableId} scannée et activée (Occupée) via le Code QR [${enteredCode || table.accessCode}]`
     );
 
+    // Persistent siren alarm so waiters & admin notice even if not looking at the screen
+    if (wasLibre) {
+      state.activeAlarm = {
+        id: `alarm-${Date.now()}`,
+        tableId,
+        message: `Table ${tableId} activée par un client (Scan QR Code)`,
+        type: 'waiter_call',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     saveStateAndNotify();
     return {
       success: true,
       message: wasLibre
         ? `Table ${tableId} activée avec succès ! Statut changé en OCCUPÉE.`
         : `Accès validé pour la Table ${tableId}.`,
+    };
+  },
+
+  // Used on the client landing page: the client only knows their table's 4-digit code,
+  // not which "table number" is currently selected in the app, so we search across ALL
+  // tables for a match instead of requiring a table to be pre-selected first.
+  verifyAndOccupyTableByCode(code: string): { success: boolean; message: string; tableId?: number } {
+    const enteredCode = code.trim();
+    if (enteredCode.length !== 4) {
+      return { success: false, message: 'Veuillez saisir les 4 chiffres du code affiché sur votre table.' };
+    }
+
+    const table = state.tables.find((t) => t.accessCode === enteredCode);
+    if (!table) {
+      return { success: false, message: "Code invalide. Vérifiez le code à 4 chiffres affiché sur votre table." };
+    }
+
+    const wasLibre = table.status === 'libre';
+    state.tables = state.tables.map((t) =>
+      t.id === table.id ? { ...t, status: 'occupee' } : t
+    );
+
+    playDoubleBeepSound();
+
+    this.addNotification(
+      table.id,
+      'waiter_call',
+      `Table ${table.id} scannée et activée (Occupée) via le Code [${enteredCode}]`
+    );
+
+    if (wasLibre) {
+      state.activeAlarm = {
+        id: `alarm-${Date.now()}`,
+        tableId: table.id,
+        message: `Table ${table.id} activée par un client (Code saisi)`,
+        type: 'waiter_call',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    saveStateAndNotify();
+    return {
+      success: true,
+      tableId: table.id,
+      message: wasLibre
+        ? `Table ${table.id} activée avec succès ! Statut changé en OCCUPÉE.`
+        : `Accès validé pour la Table ${table.id}.`,
     };
   },
 
@@ -434,7 +506,7 @@ export const store = {
       tableId,
       waiterId: tableObj?.assignedWaiterId,
       items: orderItems,
-      status: 'nouvelle',
+      status: 'en_attente_validation',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -446,21 +518,66 @@ export const store = {
       t.id === tableId ? { ...t, status: 'commande_en_cours', activeOrderId: newOrder.id } : t
     );
 
-    this.addNotification(tableId, 'new_order', `Nouvelle commande (#${newOrderNumber}) pour Table ${tableId}`);
+    this.addNotification(
+      tableId,
+      'new_order',
+      `Nouvelle commande (#${newOrderNumber}) pour Table ${tableId} — en attente de validation du serveur`
+    );
     playChimeSound('order');
 
     // Trigger persistent audio alarm for waiters and admin until manually stopped
+    // (ou jusqu'à ce que le serveur confirme la commande, voir confirmOrder ci-dessous)
     state.activeAlarm = {
       id: `alarm-${Date.now()}`,
       tableId,
       orderNumber: newOrderNumber,
-      message: `Nouvelle commande Table ${tableId} (#${newOrderNumber})`,
+      message: `Commande Table ${tableId} (#${newOrderNumber}) à valider par le serveur`,
       type: 'new_order',
       timestamp: new Date().toISOString(),
     };
 
     saveStateAndNotify();
     return newOrder;
+  },
+
+  // Le serveur (ou l'admin) confirme la commande passée par le client : elle devient
+  // alors visible en cuisine ('nouvelle') et l'alarme liée est coupée puisqu'un humain
+  // vient d'en prendre la responsabilité.
+  confirmOrder(orderId: string, waiterId?: string): boolean {
+    const order = state.orders.find((o) => o.id === orderId);
+    if (!order || order.status !== 'en_attente_validation') return false;
+
+    state.orders = state.orders.map((o) =>
+      o.id === orderId
+        ? {
+            ...o,
+            status: 'nouvelle',
+            waiterId: waiterId || o.waiterId,
+            confirmedByWaiterId: waiterId,
+            confirmedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+        : o
+    );
+
+    this.addNotification(
+      order.tableId,
+      'new_order',
+      `Commande #${order.orderNumber} confirmée — transmise en cuisine (Table ${order.tableId})`
+    );
+
+    // Si l'alarme active correspond bien à cette commande, on l'éteint : la confirmation
+    // du serveur vaut prise en charge.
+    if (
+      state.activeAlarm &&
+      state.activeAlarm.tableId === order.tableId &&
+      state.activeAlarm.orderNumber === order.orderNumber
+    ) {
+      state.activeAlarm = null;
+    }
+
+    saveStateAndNotify();
+    return true;
   },
 
   updateOrderStatus(orderId: string, status: OrderStatus) {
