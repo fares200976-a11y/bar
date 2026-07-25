@@ -36,6 +36,88 @@ import { QRCodeGeneratorView } from './components/admin/QRCodeGeneratorView';
 import { SettingsView } from './components/admin/SettingsView';
 import { LoginModal } from './components/auth/LoginModal';
 
+// Page d'accueil client : aucune table n'est affichée tant que le code à 4 chiffres
+// n'a pas été saisi et validé. Dès que 4 chiffres sont tapés, la vérification se fait
+// automatiquement (pas de bouton à cliquer) et le numéro de table trouvé s'affiche.
+function ClientLandingGate({
+  settings,
+  onCodeVerified,
+}: {
+  settings: RestaurantSettings;
+  onCodeVerified: (tableId: number) => void;
+}) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const [foundTableId, setFoundTableId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (pin.length !== 4) {
+      setError('');
+      setFoundTableId(null);
+      return;
+    }
+
+    const result = store.verifyAndOccupyTableByCode(pin);
+
+    if (result.success && result.tableId) {
+      setError('');
+      setFoundTableId(result.tableId);
+      const timer = setTimeout(() => onCodeVerified(result.tableId as number), 700);
+      return () => clearTimeout(timer);
+    }
+
+    setFoundTableId(null);
+    setError(result.message || 'Code invalide. Vérifiez les 4 chiffres affichés sur votre table.');
+  }, [pin]);
+
+  return (
+    <main className="min-h-[75vh] flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-sm bg-white dark:bg-[#1C1C16] rounded-3xl shadow-xl border border-[#E5E2DD] dark:border-[#33332A] p-8 text-center space-y-6">
+        {settings.logo && (
+          <img
+            src={settings.logo}
+            alt={settings.name}
+            className="w-16 h-16 rounded-2xl object-cover mx-auto shadow-sm"
+          />
+        )}
+        <div>
+          <h1 className="text-xl font-serif font-semibold text-[#5A5A40] dark:text-[#E2E0D8]">
+            {settings.name}
+          </h1>
+          <p className="text-xs text-[#9A948C] mt-2">
+            Bienvenue ! Saisissez le code à 4 chiffres affiché sur votre table pour accéder au menu.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={4}
+            autoFocus
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="••••"
+            className="w-full text-center text-3xl font-black font-mono tracking-[0.5em] bg-[#F5F2ED] dark:bg-[#26261E] text-[#1A1A1A] dark:text-white py-4 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A] focus:outline-none focus:ring-2 focus:ring-[#5A5A40]"
+          />
+
+          {foundTableId ? (
+            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+              ✅ Table {foundTableId} trouvée — ouverture du menu...
+            </p>
+          ) : error ? (
+            <p className="text-xs font-semibold text-rose-500">{error}</p>
+          ) : (
+            <p className="text-[11px] text-[#9A948C]">
+              Le numéro de votre table s'affichera automatiquement dès la saisie.
+            </p>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   const [appState, setAppState] = useState(store.getState());
 
@@ -43,6 +125,12 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'client' | 'admin'>('client');
   const [adminTab, setAdminTab] = useState<AdminTab>('dashboard');
   const [selectedTableId, setSelectedTableId] = useState<number>(1);
+
+  // Le client n'est considéré comme "arrivé" sur une table que lorsqu'il a explicitement
+  // scanné un QR avec un code valide, ou saisi son code à 4 chiffres sur la page d'accueil.
+  // Sans ça, on ne doit JAMAIS lui montrer une table par défaut (même si elle est occupée
+  // par quelqu'un d'autre par ailleurs).
+  const [clientAccessGranted, setClientAccessGranted] = useState(false);
 
   // Authentication state
   const [currentUser, setCurrentUser] = useState<User | null>(appState.users[0]); // Default admin logged in
@@ -105,7 +193,10 @@ export default function App() {
       setCurrentView('client');
 
       if (paramCode) {
-        store.verifyAndOccupyTable(tableNum, paramCode);
+        const result = store.verifyAndOccupyTable(tableNum, paramCode);
+        if (result.success) {
+          setClientAccessGranted(true);
+        }
       }
     }
   }, [appState.waiters]);
@@ -131,12 +222,22 @@ export default function App() {
     appState.tables.find((t) => t.id === selectedTableId) || appState.tables[0];
   const assignedWaiter = appState.waiters.find((w) => w.id === selectedTable?.assignedWaiterId);
 
+  // Sécurité : une table n'est considérée "vérifiée" que lorsque le client a saisi
+  // le bon code à 4 chiffres (ce qui passe son statut à 'occupee' côté store).
+  // Tant que ce n'est pas le cas, aucune action d'écriture (panier, appel serveur,
+  // addition) n'est autorisée — visiter /table/N sans le code ne suffit plus.
+  const isSelectedTableVerified = selectedTable?.status === 'occupee';
+
   const activeOrderForTable = appState.orders.find(
     (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee'
   );
 
   // Cart operations
   const handleAddToCart = (item: MenuItem, quantity: number, notes?: string) => {
+    // Sécurité : impossible d'ajouter au panier tant que la table n'a pas été
+    // validée via son code QR à 4 chiffres (voir isSelectedTableVerified).
+    if (!isSelectedTableVerified) return;
+
     const existingIndex = cartItems.findIndex(
       (c) => c.menuItem.id === item.id && c.notes === notes
     );
@@ -164,7 +265,7 @@ export default function App() {
   };
 
   const handleSubmitClientOrder = () => {
-    if (cartItems.length === 0) return;
+    if (cartItems.length === 0 || !isSelectedTableVerified) return;
     store.createOrder(selectedTableId, cartItems);
     setCartItems([]);
   };
@@ -208,6 +309,15 @@ export default function App() {
 
       {/* Main View Router */}
       {currentView === 'client' ? (
+        !clientAccessGranted ? (
+          <ClientLandingGate
+            settings={appState.settings}
+            onCodeVerified={(tableId) => {
+              setSelectedTableId(tableId);
+              setClientAccessGranted(true);
+            }}
+          />
+        ) : (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <ClientMenuView
             table={selectedTable}
@@ -217,10 +327,20 @@ export default function App() {
             waiter={assignedWaiter}
             settings={appState.settings}
             onAddToCart={handleAddToCart}
-            onCallWaiter={() => store.callWaiter(selectedTableId)}
-            onRequestBill={() => store.requestBill(selectedTableId)}
+            onCallWaiter={() => {
+              if (!isSelectedTableVerified) return;
+              store.callWaiter(selectedTableId);
+            }}
+            onRequestBill={() => {
+              if (!isSelectedTableVerified) return;
+              store.requestBill(selectedTableId);
+            }}
             onOpenCart={() => setIsCartOpen(true)}
             onOpenStatusModal={() => setIsStatusModalOpen(true)}
+            onTableIdentified={(tId) => {
+              setSelectedTableId(tId);
+              setClientAccessGranted(true);
+            }}
             cartItemCount={cartItems.reduce((acc, i) => acc + i.quantity, 0)}
             cartTotal={cartTotalSum}
           />
@@ -243,10 +363,17 @@ export default function App() {
             onClose={() => setIsStatusModalOpen(false)}
             order={activeOrderForTable}
             settings={appState.settings}
-            onCallWaiter={() => store.callWaiter(selectedTableId)}
-            onRequestBill={() => store.requestBill(selectedTableId)}
+            onCallWaiter={() => {
+              if (!isSelectedTableVerified) return;
+              store.callWaiter(selectedTableId);
+            }}
+            onRequestBill={() => {
+              if (!isSelectedTableVerified) return;
+              store.requestBill(selectedTableId);
+            }}
           />
         </main>
+        )
       ) : (
         /* Staff & Admin Interface Layout */
         <AdminLayout
@@ -272,10 +399,12 @@ export default function App() {
               orders={appState.orders}
               waiters={appState.waiters}
               settings={appState.settings}
+              currentUser={currentUser}
               onUpdateStatus={(tId, st) => store.updateTableStatus(tId, st)}
               onAssignWaiter={(tId, wId) => store.assignWaiterToTable(tId, wId)}
               onMoveOrder={(fromId, toId) => store.moveOrderBetweenTables(fromId, toId)}
               onMergeTables={(srcId, tgtId) => store.mergeTables(srcId, tgtId)}
+              onConfirmOrder={(oId) => store.confirmOrder(oId, currentUser?.id)}
               onOpenCashierForTable={(tId) => {
                 setSelectedTableId(tId);
                 setAdminTab('cashier');
