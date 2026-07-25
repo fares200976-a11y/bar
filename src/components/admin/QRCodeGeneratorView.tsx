@@ -55,7 +55,7 @@ export const QRCodeGeneratorView: React.FC<QRCodeGeneratorViewProps> = ({
         <body>
           <h1>${settings.name} — QR Codes pour les 10 Tables</h1>
           <p>Scannez pour accéder au menu. Code à 4 chiffres généré automatiquement.</p>
-          <div className="grid" id="qr-container"></div>
+          <div class="grid" id="qr-container"></div>
           <script>
             window.onload = function() {
               const container = document.getElementById('qr-container');
@@ -65,10 +65,10 @@ export const QRCodeGeneratorView: React.FC<QRCodeGeneratorViewProps> = ({
                 const card${t.id} = document.createElement('div');
                 card${t.id}.className = 'card';
                 card${t.id}.innerHTML = \`
-                  <div className="title">${settings.name}</div>
-                  <div className="subtitle">Menu Numérique & Commande Instantanée</div>
-                  <div className="table-num">${t.name}</div>
-                  <div className="pin-code">CODE SÉCURITÉ : ${t.accessCode || '1001'}</div>
+                  <div class="title">${settings.name}</div>
+                  <div class="subtitle">Menu Numérique & Commande Instantanée</div>
+                  <div class="table-num">${t.name}</div>
+                  <div class="pin-code">CODE SÉCURITÉ : ${t.accessCode || '1001'}</div>
                   <p style="font-size:10px; color:#777; margin-top:10px;">Scannez pour commander</p>
                 \`;
                 container.appendChild(card${t.id});

@@ -76,13 +76,13 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       setPinError('Veuillez saisir exactement les 4 chiffres du QR Code.');
       return;
     }
-    const isSuccess = store.verifyAndOccupyTable(table.id, pinInput.trim());
-    if (isSuccess) {
+    const result = store.verifyAndOccupyTable(table.id, pinInput.trim());
+    if (result.success) {
       setPinSuccess(true);
       setPinInput('');
       setTimeout(() => setPinSuccess(false), 5000);
     } else {
-      setPinError('Code à 4 chiffres incorrect pour cette table.');
+      setPinError(result.message || 'Code à 4 chiffres incorrect pour cette table.');
     }
   };
 

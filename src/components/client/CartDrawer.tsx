@@ -32,6 +32,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSentSuccess, setOrderSentSuccess] = useState(false);
+  const [showFinalConfirmModal, setShowFinalConfirmModal] = useState(false);
 
   if (!isOpen) return null;
 
@@ -40,8 +41,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       acc + (item.menuItem.isPromo && item.menuItem.promoPrice ? item.menuItem.promoPrice : item.menuItem.price) * item.quantity,
     0
   );
-
-  const [showFinalConfirmModal, setShowFinalConfirmModal] = useState(false);
 
   const handleConfirmOrder = () => {
     setShowFinalConfirmModal(true);

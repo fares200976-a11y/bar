@@ -23,7 +23,7 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({ alarm }) => {
           <div>
             <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start font-black text-lg sm:text-xl tracking-wide uppercase">
               <ShieldAlert className="w-6 h-6 text-yellow-300" />
-              <span>ALERME EN COURS — SERVEURS & ADMIN</span>
+              <span>ALARME EN COURS — SERVEURS & ADMIN</span>
             </div>
             <div className="flex flex-wrap items-center gap-3 mt-1 justify-center sm:justify-start">
               <span className="bg-yellow-400 text-red-950 font-black text-lg sm:text-xl px-3 py-0.5 rounded-xl border border-yellow-300 shadow-md">

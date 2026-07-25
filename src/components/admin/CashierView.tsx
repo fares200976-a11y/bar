@@ -42,12 +42,6 @@ export const CashierView: React.FC<CashierViewProps> = ({
   const [splitCount, setSplitCount] = useState<number>(2);
   const [lastProcessedBill, setLastProcessedBill] = useState<{ bill: Bill; order: Order } | null>(null);
 
-  // Split payment breakdown state
-  const [splitBreakdowns, setSplitBreakdowns] = useState<PaymentBreakdown[]>([
-    { method: 'espèces', amount: 0 },
-    { method: 'carte', amount: 0 },
-  ]);
-
   const activeOrder = orders.find(
     (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee'
   );
@@ -61,6 +55,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
   const handlePay = () => {
     if (!activeOrder) return;
+
+    const splitBreakdowns: PaymentBreakdown[] =
+      paymentMethod === 'partagé'
+        ? Array.from({ length: splitCount }, () => ({
+            method: 'espèces' as const,
+            amount: grandTotal / splitCount,
+          }))
+        : [];
 
     const bill = onProcessPayment(
       activeOrder.id,

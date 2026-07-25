@@ -435,6 +435,21 @@ export const MenuView: React.FC<MenuViewProps> = ({
                   <span>Promotion</span>
                 </label>
 
+                {formIsPromo && (
+                  <div className="col-span-2 sm:col-span-4 -mt-1">
+                    <label className="font-bold text-slate-700 dark:text-slate-300">
+                      Prix Promotionnel ({settings.currency}) :
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={formPromoPrice}
+                      onChange={(e) => setFormPromoPrice(parseFloat(e.target.value) || 0)}
+                      className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
+                    />
+                  </div>
+                )}
+
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
