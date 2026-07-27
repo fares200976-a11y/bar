@@ -536,10 +536,17 @@ function initRealtime() {
   channel.subscribe();
 }
 
-// Démarrage : premier chargement + écoute temps réel.
+// Démarrage : premier chargement + écoute temps réel + filet de sécurité.
+// Le temps réel Supabase peut, dans certains cas, ne pas diffuser les
+// changements pour des policies RLS un peu complexes (comportement connu et
+// silencieux). Pour garantir une synchronisation fiable quel que soit ce
+// comportement, on rafraîchit aussi toutes les 5 secondes en tâche de fond.
 if (typeof window !== 'undefined') {
   fetchAll();
   initRealtime();
+  setInterval(() => {
+    fetchAll();
+  }, 5000);
 }
 
 // ----------------------------------------------------------------------------
