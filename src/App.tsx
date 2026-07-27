@@ -1,5 +1,5 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react';
-import { store } from './services/store';
+import { store, playDoubleBeepSound } from './services/store';
 import { fetchOwnProfile, signOut, createStaffAccount, signInWithPin } from './services/auth';
 import {
   Table,
@@ -276,6 +276,25 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  // Rappel sonore périodique : tant qu'une commande "prête" (plat ou boisson)
+  // n'a pas été marquée "servie" par le serveur, ça re-sonne toutes les 20s.
+  // Ne concerne que le personnel connecté (jamais l'appareil du client).
+  useEffect(() => {
+    if (!currentUser || !audioEnabled) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const staleReadyOrders = appState.orders.filter(
+        (o) => o.status === 'prete' && now - new Date(o.updatedAt).getTime() >= 20000
+      );
+      if (staleReadyOrders.length > 0) {
+        playDoubleBeepSound();
+      }
+    }, 20000);
+
+    return () => clearInterval(interval);
+  }, [currentUser, audioEnabled, appState.orders]);
 
   const selectedTable = appState.tables.find((t) => t.id === selectedTableId);
   const assignedWaiter = appState.waiters.find((w) => w.id === selectedTable?.assignedWaiterId);
