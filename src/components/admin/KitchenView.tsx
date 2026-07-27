@@ -33,8 +33,9 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
   };
 
   // Active orders containing matching items
+  // La cuisine ne doit voir que les commandes déjà confirmées par le serveur.
   const activeOrders = orders
-    .filter((o) => o.status !== 'terminee' && o.status !== 'annulee')
+    .filter((o) => o.status !== 'terminee' && o.status !== 'annulee' && o.status !== 'en_attente_validation')
     .map((o) => ({
       ...o,
       filteredItems: filterOrderItems(o),

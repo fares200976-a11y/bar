@@ -53,7 +53,7 @@ export const QRCodeGeneratorView: React.FC<QRCodeGeneratorViewProps> = ({
           </style>
         </head>
         <body>
-          <h1>${settings.name} — QR Codes pour les 10 Tables</h1>
+          <h1>${settings.name} — QR Codes pour les ${tables.length} Tables</h1>
           <p>Scannez pour accéder au menu. Code à 4 chiffres généré automatiquement.</p>
           <div class="grid" id="qr-container"></div>
           <script>
@@ -97,7 +97,7 @@ export const QRCodeGeneratorView: React.FC<QRCodeGeneratorViewProps> = ({
             <span>Générateur de QR Codes</span>
           </h2>
           <p className="text-sm font-bold text-slate-600 dark:text-slate-300 mt-1">
-            QR Codes pour les 10 tables clients et QR Codes de connexion rapide pour l'équipe des serveurs.
+            QR Codes pour les {tables.length} tables clients et QR Codes de connexion rapide pour l'équipe des serveurs.
           </p>
         </div>
 
@@ -121,7 +121,7 @@ export const QRCodeGeneratorView: React.FC<QRCodeGeneratorViewProps> = ({
           }`}
         >
           <QrCode className="w-4 h-4" />
-          <span>QR Codes Tables Clients (10)</span>
+          <span>QR Codes Tables Clients ({tables.length})</span>
         </button>
 
         <button

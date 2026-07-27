@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Save, RefreshCw, Database, Cloud, ShieldCheck, CheckCircle2, Volume2, VolumeX, Play, Square, BellRing, Music } from 'lucide-react';
+import { Settings as SettingsIcon, Save, RefreshCw, Database, Cloud, CheckCircle2, Volume2, VolumeX, Play, Square, BellRing, Music, Download, Upload, AlertCircle } from 'lucide-react';
 import { RestaurantSettings } from '../../types';
 import { MP3_PRESETS, testAlarmSound, stopContinuousAlarm } from '../../utils/audioAlarm';
+import { store } from '../../services/store';
 
 interface SettingsViewProps {
   settings: RestaurantSettings;
@@ -14,6 +15,54 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateSettings,
   onResetData,
 }) => {
+  const [restoreMessage, setRestoreMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+
+  const handleDownloadBackup = () => {
+    const backup = store.exportBackup();
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sauvegarde-${settings.name.replace(/\s+/g, '-').toLowerCase()}-${new Date()
+      .toISOString()
+      .slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setRestoreMessage({
+      type: 'success',
+      text: `Sauvegarde téléchargée : ${backup.categories.length} catégories, ${backup.menu.length} plats, ${backup.tables.length} tables. Gardez ce fichier de côté — inutile de l'ouvrir, il sert uniquement au bouton "Restaurer".`,
+    });
+  };
+
+  const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setRestoreMessage(null);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const data = JSON.parse(reader.result as string);
+        setIsRestoring(true);
+        const result = await store.restoreBackup(data);
+        setIsRestoring(false);
+
+        setRestoreMessage(
+          result.success
+            ? { type: 'success', text: 'Sauvegarde restaurée avec succès.' }
+            : { type: 'error', text: result.message || 'Restauration impossible.' }
+        );
+      } catch {
+        setIsRestoring(false);
+        setRestoreMessage({ type: 'error', text: 'Fichier invalide — ce n\'est pas une sauvegarde JSON valide.' });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // permet de resélectionner le même fichier ensuite
+  };
+
   const [name, setName] = useState(settings.name);
   const [logo, setLogo] = useState(settings.logo);
   const [address, setAddress] = useState(settings.address);
@@ -349,11 +398,65 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {/* Sauvegarde & Restauration */}
+        <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-3">
+          <div>
+            <p className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+              <Database className="w-4 h-4" /> Sauvegarde & Restauration (Carte, Tables, Paramètres)
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Les sauvegardes de toute la base sont automatiquement gérées par Supabase (infrastructure). Le
+              bouton ci-dessous télécharge en plus un fichier de secours de votre carte, vos tables et vos
+              paramètres — un fichier technique à conserver précieusement, mais que vous n'avez jamais besoin
+              d'ouvrir ni de modifier vous-même : il ne sert qu'à être réimporté avec "Restaurer" en cas de besoin.
+            </p>
+          </div>
+
+          {restoreMessage && (
+            <div
+              className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 border ${
+                restoreMessage.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-600 dark:text-rose-300'
+              }`}
+            >
+              {restoreMessage.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0" />
+              )}
+              <span>{restoreMessage.text}</span>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleDownloadBackup}
+              className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Télécharger une Sauvegarde</span>
+            </button>
+
+            <label
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                isRestoring
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                  : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 border border-blue-200 dark:border-blue-900/50'
+              }`}
+            >
+              <Upload className="w-4 h-4" />
+              <span>{isRestoring ? 'Restauration...' : 'Restaurer depuis un Fichier'}</span>
+              <input type="file" accept="application/json" onChange={handleRestoreFile} disabled={isRestoring} className="hidden" />
+            </label>
+          </div>
+        </div>
+
         {/* Reset Data Button */}
         <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
           <div>
             <p className="text-xs font-bold text-rose-600 dark:text-rose-400">Zone de Réinitialisation</p>
-            <p className="text-[11px] text-slate-400">Restaurez le menu et les 10 tables par défaut.</p>
+            <p className="text-[11px] text-slate-400">Restaurez le menu et les tables par défaut.</p>
           </div>
           <button
             onClick={() => {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Plus, Phone, User, Users, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { Calendar, Plus, Phone, Users, Clock, XCircle } from 'lucide-react';
 import { Reservation, Table } from '../../types';
 import { formatDateTime } from '../../utils/formatters';
 

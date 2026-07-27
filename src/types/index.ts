@@ -1,7 +1,7 @@
 export type UserRole = 'admin' | 'manager' | 'serveur' | 'cuisinier' | 'caissier';
 
 export interface User {
-  id: string;
+  id: string; // correspond à auth.users.id (UUID Supabase)
   name: string;
   username: string;
   role: UserRole;
@@ -63,7 +63,7 @@ export interface OrderItem {
   status: 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'annulee';
 }
 
-export type OrderStatus = 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'terminee' | 'annulee';
+export type OrderStatus = 'en_attente_validation' | 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'terminee' | 'annulee';
 
 export interface Order {
   id: string;
@@ -78,6 +78,8 @@ export interface Order {
   callWaiterRequest?: boolean;
   requestBill?: boolean;
   billRequestedAt?: string;
+  confirmedByWaiterId?: string; // serveur qui a validé la commande vers la cuisine
+  confirmedAt?: string;
 }
 
 export type PaymentMethod = 'espèces' | 'carte' | 'mobile' | 'partagé';
@@ -121,7 +123,6 @@ export interface Waiter {
   id: string;
   name: string;
   photo: string;
-  password?: string;
   pinCode?: string; // 4-digit special access PIN code
   phone: string;
   isOnline: boolean;
@@ -150,6 +151,19 @@ export interface RestaurantSettings {
   customAudioUrl?: string;
   enableLoopAlarm?: boolean;
   alarmVolume?: number;
+}
+
+export interface CashRegisterClosing {
+  id: string;
+  closedByUserId?: string;
+  periodStart: string;
+  periodEnd: string;
+  openingFloat: number;
+  expectedCash: number;
+  declaredCash: number;
+  difference: number;
+  notes?: string;
+  createdAt: string;
 }
 
 export interface CallNotification {

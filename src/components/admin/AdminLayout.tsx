@@ -13,7 +13,7 @@ import {
   LogOut,
   ShieldAlert
 } from 'lucide-react';
-import { User, UserRole } from '../../types';
+import { User } from '../../types';
 
 export type AdminTab =
   | 'dashboard'
@@ -59,7 +59,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     { id: 'kitchen', label: 'Cuisine (KDS)', icon: <ChefHat className="w-5 h-5" /> },
     { id: 'cashier', label: 'Caisse & POS', icon: <Receipt className="w-5 h-5" /> },
     { id: 'menu', label: 'Carte & Plats', icon: <UtensilsCrossed className="w-5 h-5" /> },
-    { id: 'waiters', label: 'Serveurs & Équipe', icon: <Users className="w-5 h-5" /> },
+    { id: 'waiters', label: 'Comptes & Équipe', icon: <Users className="w-5 h-5" /> },
     { id: 'reservations', label: 'Réservations', icon: <Calendar className="w-5 h-5" /> },
     { id: 'history', label: 'Historique', icon: <History className="w-5 h-5" /> },
     { id: 'qrcodes', label: 'QR Codes Tables', icon: <QrCode className="w-5 h-5" /> },

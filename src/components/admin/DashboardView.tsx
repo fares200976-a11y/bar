@@ -39,13 +39,69 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const occupiedTablesCount = tables.filter((t) => t.status !== 'libre').length;
   const freeTablesCount = tables.filter((t) => t.status === 'libre').length;
 
-  const todayRevenue = bills.reduce((sum, b) => sum + b.total, 0);
-  const totalOrdersCount = orders.length;
+  // Bornes de la période sélectionnée + de la période précédente équivalente
+  // (pour calculer une vraie évolution en %, pas un chiffre fixe).
+  const getPeriodRange = (period: typeof periodFilter) => {
+    const now = new Date();
+    let start: Date;
+    let prevStart: Date;
+    let prevEnd: Date;
+
+    if (period === 'jour') {
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      prevEnd = new Date(start);
+      prevStart = new Date(start.getTime() - 24 * 60 * 60 * 1000);
+    } else if (period === 'semaine') {
+      const dayOfWeek = (now.getDay() + 6) % 7; // 0 = lundi
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+      prevEnd = new Date(start);
+      prevStart = new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (period === 'mois') {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      prevEnd = new Date(start);
+      prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    } else {
+      start = new Date(now.getFullYear(), 0, 1);
+      prevEnd = new Date(start);
+      prevStart = new Date(now.getFullYear() - 1, 0, 1);
+    }
+
+    return { start, end: now, prevStart, prevEnd };
+  };
+
+  const { start: periodStart, end: periodEnd, prevStart, prevEnd } = getPeriodRange(periodFilter);
+
+  const isWithin = (iso: string, from: Date, to: Date) => {
+    const t = new Date(iso).getTime();
+    return t >= from.getTime() && t <= to.getTime();
+  };
+
+  const periodBills = bills.filter((b) => isWithin(b.paidAt, periodStart, periodEnd));
+  const previousPeriodBills = bills.filter((b) => isWithin(b.paidAt, prevStart, prevEnd));
+  const periodOrders = orders.filter((o) => isWithin(o.createdAt, periodStart, periodEnd));
+
+  const periodRevenue = periodBills.reduce((sum, b) => sum + b.total, 0);
+  const previousPeriodRevenue = previousPeriodBills.reduce((sum, b) => sum + b.total, 0);
+  const revenueGrowthPct =
+    previousPeriodRevenue > 0
+      ? ((periodRevenue - previousPeriodRevenue) / previousPeriodRevenue) * 100
+      : periodRevenue > 0
+      ? 100
+      : 0;
+
+  const totalOrdersCount = periodOrders.length;
+
+  // Seules les commandes confirmées (donc réellement passées en cuisine) comptent
+  // dans les statistiques de ventes — une commande annulée ou encore en attente de
+  // validation par le serveur ne doit pas fausser le classement des plats/serveurs.
+  const confirmedOrders = periodOrders.filter(
+    (o) => o.status !== 'annulee' && o.status !== 'en_attente_validation'
+  );
 
   // Calculate Top Plats
   const dishSalesMap: Record<string, { name: string; qty: number; revenue: number; isDrink: boolean }> = {};
 
-  orders.forEach((ord) => {
+  confirmedOrders.forEach((ord) => {
     ord.items.forEach((item) => {
       const menuItem = menu.find((m) => m.id === item.menuItemId);
       const isDrink = menuItem?.categoryId === 'cat-12' || menuItem?.categoryId === 'cat-13' || menuItem?.categoryId === 'cat-14';
@@ -64,22 +120,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Top Waiter calculation
   const waiterSalesMap: Record<string, number> = {};
-  orders.forEach((o) => {
+  confirmedOrders.forEach((o) => {
     if (o.waiterId) {
       const total = o.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
       waiterSalesMap[o.waiterId] = (waiterSalesMap[o.waiterId] || 0) + total;
     }
   });
 
-  let topWaiterName = 'Karim Benali';
+  let topWaiterName: string | null = null;
   let topWaiterRevenue = 0;
   Object.entries(waiterSalesMap).forEach(([wId, rev]) => {
     if (rev > topWaiterRevenue) {
       topWaiterRevenue = rev;
       const waiterObj = waiters.find((w) => w.id === wId);
-      if (waiterObj) topWaiterName = waiterObj.name;
+      topWaiterName = waiterObj ? waiterObj.name : null;
     }
   });
+
+  // Temps de préparation moyen réel, pondéré par les quantités vendues sur la période.
+  let prepWeightedTotal = 0;
+  let prepQtyTotal = 0;
+  confirmedOrders.forEach((ord) => {
+    ord.items.forEach((item) => {
+      const menuItem = menu.find((m) => m.id === item.menuItemId);
+      if (menuItem) {
+        prepWeightedTotal += menuItem.prepTimeMinutes * item.quantity;
+        prepQtyTotal += item.quantity;
+      }
+    });
+  });
+  const avgPrepTimeMinutes = prepQtyTotal > 0 ? Math.round(prepWeightedTotal / prepQtyTotal) : null;
 
   // Handle Export triggers
   const handleExportPDF = () => {
@@ -189,11 +259,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <p className="text-2xl font-serif font-bold text-[#1A1A1A] dark:text-white mt-3">
-            {formatCurrency(todayRevenue, settings.currency)}
+            {formatCurrency(periodRevenue, settings.currency)}
           </p>
-          <div className="flex items-center gap-1 text-[11px] text-[#486349] font-medium mt-2">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>+14.2% vs période précédente</span>
+          <div
+            className={`flex items-center gap-1 text-[11px] font-medium mt-2 ${
+              revenueGrowthPct >= 0 ? 'text-[#486349]' : 'text-[#D95D39]'
+            }`}
+          >
+            <TrendingUp className={`w-3.5 h-3.5 ${revenueGrowthPct < 0 ? 'rotate-180' : ''}`} />
+            <span>
+              {revenueGrowthPct >= 0 ? '+' : ''}
+              {revenueGrowthPct.toFixed(1)}% vs période précédente
+            </span>
           </div>
         </div>
 
@@ -207,12 +284,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="flex items-baseline gap-2 mt-3">
             <span className="text-2xl font-serif font-bold text-[#1A1A1A] dark:text-white">{occupiedTablesCount}</span>
-            <span className="text-xs text-[#9A948C]">/ 10 Tables occupées</span>
+            <span className="text-xs text-[#9A948C]">/ {tables.length} Tables occupées</span>
           </div>
           <div className="w-full bg-[#F5F2ED] dark:bg-[#26261E] h-2 rounded-full mt-3 overflow-hidden border border-[#E5E2DD] dark:border-[#33332A]">
             <div
               className="bg-[#5A5A40] h-full rounded-full transition-all duration-500"
-              style={{ width: `${(occupiedTablesCount / 10) * 100}%` }}
+              style={{ width: `${tables.length > 0 ? (occupiedTablesCount / tables.length) * 100 : 0}%` }}
             />
           </div>
         </div>
@@ -237,10 +314,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Award className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-base font-semibold text-[#1A1A1A] dark:text-white mt-2 truncate">{topWaiterName}</p>
+          <p className="text-base font-semibold text-[#1A1A1A] dark:text-white mt-2 truncate">
+            {topWaiterName || 'Aucune vente sur cette période'}
+          </p>
           <div className="flex items-center gap-2 text-xs text-[#9A948C] mt-2">
             <Clock className="w-3.5 h-3.5 text-[#E0B580]" />
-            <span>Moy. Préparation : <span className="font-semibold text-[#1A1A1A] dark:text-white">12 min</span></span>
+            <span>
+              Moy. Préparation :{' '}
+              <span className="font-semibold text-[#1A1A1A] dark:text-white">
+                {avgPrepTimeMinutes !== null ? `${avgPrepTimeMinutes} min` : '—'}
+              </span>
+            </span>
           </div>
         </div>
       </div>

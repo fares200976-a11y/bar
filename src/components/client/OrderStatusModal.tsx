@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Clock, CheckCircle2, Utensils, Receipt, Bell, Sparkles } from 'lucide-react';
+import { X, Clock, CheckCircle2, Receipt, Bell } from 'lucide-react';
 import { Order, RestaurantSettings } from '../../types';
 import { formatCurrency, formatTimeOnly, getOrderStatusLabel } from '../../utils/formatters';
 
@@ -25,7 +25,8 @@ export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({
   const total = order.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
 
   const steps = [
-    { key: 'nouvelle', label: 'Reçue', desc: 'Saisie en cuisine' },
+    { key: 'en_attente_validation', label: 'Envoyée', desc: 'Reçue par le serveur' },
+    { key: 'nouvelle', label: 'Confirmée', desc: 'Transmise en cuisine' },
     { key: 'en_preparation', label: 'En préparation', desc: 'Le chef prépare vos plats' },
     { key: 'prete', label: 'Prête', desc: 'Vos assiettes sont prêtes' },
     { key: 'servie', label: 'Servie', desc: 'Bon appétit à table !' },

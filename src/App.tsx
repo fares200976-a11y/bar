@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { store, playChimeSound } from './services/store';
+import React, { useEffect, useState, Suspense, lazy } from 'react';
+import { store } from './services/store';
+import { fetchOwnProfile, signOut, createStaffAccount, signInWithPin } from './services/auth';
 import {
   Table,
   MenuItem,
@@ -24,16 +25,36 @@ import { ClientMenuView } from './components/client/ClientMenuView';
 import { CartDrawer } from './components/client/CartDrawer';
 import { OrderStatusModal } from './components/client/OrderStatusModal';
 import { AdminLayout, AdminTab } from './components/admin/AdminLayout';
-import { DashboardView } from './components/admin/DashboardView';
-import { TablesView } from './components/admin/TablesView';
-import { KitchenView } from './components/admin/KitchenView';
-import { CashierView } from './components/admin/CashierView';
-import { MenuView } from './components/admin/MenuView';
-import { WaitersView } from './components/admin/WaitersView';
-import { ReservationsView } from './components/admin/ReservationsView';
-import { OrderHistoryView } from './components/admin/OrderHistoryView';
-import { QRCodeGeneratorView } from './components/admin/QRCodeGeneratorView';
-import { SettingsView } from './components/admin/SettingsView';
+// Vues admin chargées à la demande : un client qui commande ne télécharge jamais
+// ce code (Dashboard, Caisse, jsPDF, xlsx...), ce qui allège fortement l'app.
+const DashboardView = lazy(() =>
+  import('./components/admin/DashboardView').then((m) => ({ default: m.DashboardView }))
+);
+const TablesView = lazy(() =>
+  import('./components/admin/TablesView').then((m) => ({ default: m.TablesView }))
+);
+const KitchenView = lazy(() =>
+  import('./components/admin/KitchenView').then((m) => ({ default: m.KitchenView }))
+);
+const CashierView = lazy(() =>
+  import('./components/admin/CashierView').then((m) => ({ default: m.CashierView }))
+);
+const MenuView = lazy(() => import('./components/admin/MenuView').then((m) => ({ default: m.MenuView })));
+const WaitersView = lazy(() =>
+  import('./components/admin/WaitersView').then((m) => ({ default: m.WaitersView }))
+);
+const ReservationsView = lazy(() =>
+  import('./components/admin/ReservationsView').then((m) => ({ default: m.ReservationsView }))
+);
+const OrderHistoryView = lazy(() =>
+  import('./components/admin/OrderHistoryView').then((m) => ({ default: m.OrderHistoryView }))
+);
+const QRCodeGeneratorView = lazy(() =>
+  import('./components/admin/QRCodeGeneratorView').then((m) => ({ default: m.QRCodeGeneratorView }))
+);
+const SettingsView = lazy(() =>
+  import('./components/admin/SettingsView').then((m) => ({ default: m.SettingsView }))
+);
 import { LoginModal } from './components/auth/LoginModal';
 
 // Page d'accueil client : aucune table n'est affichée tant que le code à 4 chiffres
@@ -57,17 +78,27 @@ function ClientLandingGate({
       return;
     }
 
-    const result = store.verifyAndOccupyTableByCode(pin);
+    let cancelled = false;
 
-    if (result.success && result.tableId) {
-      setError('');
-      setFoundTableId(result.tableId);
-      const timer = setTimeout(() => onCodeVerified(result.tableId as number), 700);
-      return () => clearTimeout(timer);
-    }
+    (async () => {
+      const result = await store.verifyAndOccupyTableByCode(pin);
+      if (cancelled) return;
 
-    setFoundTableId(null);
-    setError(result.message || 'Code invalide. Vérifiez les 4 chiffres affichés sur votre table.');
+      if (result.success && result.tableId) {
+        setError('');
+        setFoundTableId(result.tableId);
+        setTimeout(() => {
+          if (!cancelled) onCodeVerified(result.tableId as number);
+        }, 700);
+      } else {
+        setFoundTableId(null);
+        setError(result.message || 'Code invalide. Vérifiez les 4 chiffres affichés sur votre table.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [pin]);
 
   return (
@@ -118,6 +149,17 @@ function ClientLandingGate({
   );
 }
 
+// Choisit un onglet de démarrage que le rôle du compte peut réellement ouvrir
+// (évite l'écran "Accès Non Autorisé" juste après connexion pour tout le monde
+// sauf admin/manager, puisque 'dashboard' — l'ancien onglet par défaut — leur
+// est interdit).
+function getDefaultAdminTab(role: User['role']): AdminTab {
+  if (role === 'cuisinier') return 'kitchen';
+  if (role === 'caissier') return 'cashier';
+  if (role === 'serveur') return 'tables';
+  return 'dashboard'; // admin, manager
+}
+
 export default function App() {
   const [appState, setAppState] = useState(store.getState());
 
@@ -132,8 +174,10 @@ export default function App() {
   // par quelqu'un d'autre par ailleurs).
   const [clientAccessGranted, setClientAccessGranted] = useState(false);
 
-  // Authentication state
-  const [currentUser, setCurrentUser] = useState<User | null>(appState.users[0]); // Default admin logged in
+  // Authentication state — plus d'auto-login admin par défaut : on démarre
+  // déconnecté et on restaure une éventuelle session Supabase existante juste après.
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
 
   // Client Cart State
@@ -147,37 +191,50 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
 
-  // Detect URL parameters for Table access e.g. /table/3 or ?table=3&code=1001 or Waiter QR Login e.g. ?waiterPin=2001 or ?waiter=waiter-1
+  // Restaure la session Supabase existante (si l'utilisateur a déjà un JWT valide
+  // en cache) au chargement de l'app — SAUF si l'URL contient un ?waiterPin=,
+  // auquel cas cette connexion explicite a toujours la priorité. Les deux étaient
+  // avant dans deux useEffect séparés qui se "couraient après" : selon lequel
+  // finissait en dernier, on pouvait se retrouver connecté avec le mauvais compte.
+  useEffect(() => {
+    (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const paramWaiterPin = params.get('waiterPin');
+
+      if (paramWaiterPin) {
+        const result = await signInWithPin(paramWaiterPin);
+        if (result.success && result.user) {
+          setCurrentUser(result.user);
+          setCurrentView('admin');
+          setAdminTab(getDefaultAdminTab(result.user.role));
+        }
+        setIsAuthLoading(false);
+        return;
+      }
+
+      const profile = await fetchOwnProfile();
+      if (profile) {
+        setCurrentUser(profile);
+        setCurrentView('admin');
+        setAdminTab(getDefaultAdminTab(profile.role));
+      }
+      setIsAuthLoading(false);
+    })();
+  }, []);
+
+  // Detect URL parameters for Table access e.g. /table/3 or ?table=3&code=1001
+  // (la connexion serveur par ?waiterPin= est gérée dans l'effet précédent)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const paramTable = params.get('table');
     const paramCode = params.get('code');
     const paramWaiterPin = params.get('waiterPin');
-    const paramWaiterId = params.get('waiter');
 
-    // Waiter QR Code Login Detection
-    if (paramWaiterPin || paramWaiterId) {
-      const foundWaiter = appState.waiters.find(
-        (w) => w.pinCode === paramWaiterPin || w.id === paramWaiterId
-      );
-
-      if (foundWaiter) {
-        const waiterUser: User = {
-          id: foundWaiter.id,
-          name: foundWaiter.name,
-          username: foundWaiter.id,
-          role: 'serveur',
-          phone: foundWaiter.phone,
-          active: true,
-        };
-        setCurrentUser(waiterUser);
-        setCurrentView('admin');
-        setAdminTab('tables');
-        return;
-      }
+    // Si un waiterPin est présent, cet effet ne gère pas la logique de table.
+    if (paramWaiterPin) {
+      return;
     }
 
-    // Client Table Access
     const path = window.location.pathname;
     const match = path.match(/\/table\/(\d+)/);
 
@@ -188,18 +245,20 @@ export default function App() {
       tableNum = parseInt(paramTable, 10);
     }
 
-    if (tableNum && tableNum >= 1 && tableNum <= 10) {
+    if (tableNum && tableNum >= 1 && tableNum <= 500) {
       setSelectedTableId(tableNum);
       setCurrentView('client');
 
       if (paramCode) {
-        const result = store.verifyAndOccupyTable(tableNum, paramCode);
-        if (result.success) {
-          setClientAccessGranted(true);
-        }
+        (async () => {
+          const result = await store.verifyAndOccupyTable(tableNum as number, paramCode);
+          if (result.success) {
+            setClientAccessGranted(true);
+          }
+        })();
       }
     }
-  }, [appState.waiters]);
+  }, []);
 
   // Subscribe to store
   useEffect(() => {
@@ -218,15 +277,16 @@ export default function App() {
     }
   }, [darkMode]);
 
-  const selectedTable =
-    appState.tables.find((t) => t.id === selectedTableId) || appState.tables[0];
+  const selectedTable = appState.tables.find((t) => t.id === selectedTableId);
   const assignedWaiter = appState.waiters.find((w) => w.id === selectedTable?.assignedWaiterId);
 
   // Sécurité : une table n'est considérée "vérifiée" que lorsque le client a saisi
-  // le bon code à 4 chiffres (ce qui passe son statut à 'occupee' côté store).
+  // le bon code à 4 chiffres (ce qui fait sortir son statut de 'libre' côté store).
   // Tant que ce n'est pas le cas, aucune action d'écriture (panier, appel serveur,
   // addition) n'est autorisée — visiter /table/N sans le code ne suffit plus.
-  const isSelectedTableVerified = selectedTable?.status === 'occupee';
+  // NB : on teste "≠ libre" et pas "=== occupee" car after une commande le statut
+  // passe à 'commande_en_cours' — la table reste bien vérifiée à ce moment-là.
+  const isSelectedTableVerified = Boolean(selectedTable) && selectedTable?.status !== 'libre';
 
   const activeOrderForTable = appState.orders.find(
     (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee'
@@ -276,6 +336,19 @@ export default function App() {
     0
   );
 
+  // Tant que les données Supabase ou la session ne sont pas prêtes, on affiche un
+  // écran de chargement plutôt qu'un état intermédiaire potentiellement incohérent.
+  if (!appState.loaded || isAuthLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 border-4 border-[#5A5A40] border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors`}>
       {/* Persistent Audio Siren Alarm Banner for Waiters and Admin ONLY */}
@@ -285,11 +358,12 @@ export default function App() {
       <Header
         currentView={currentView}
         selectedTableId={selectedTableId}
+        tables={appState.tables}
         onSelectTable={(tId) => setSelectedTableId(tId)}
         onSwitchView={(v) => setCurrentView(v)}
         currentUser={currentUser}
         onOpenLogin={() => setIsLoginOpen(true)}
-        onLogout={() => setCurrentUser(null)}
+        onLogout={() => { signOut(); setCurrentUser(null); setCurrentView('client'); }}
         settings={appState.settings}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode(!darkMode)}
@@ -317,6 +391,12 @@ export default function App() {
               setClientAccessGranted(true);
             }}
           />
+        ) : !selectedTable ? (
+          // Ne devrait pas arriver, mais on évite un écran blanc si jamais la
+          // table n'est momentanément pas trouvée (ex: pendant un rafraîchissement).
+          <div className="min-h-[50vh] flex items-center justify-center px-4">
+            <p className="text-sm text-slate-500 dark:text-slate-400">Chargement de votre table...</p>
+          </div>
         ) : (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <ClientMenuView
@@ -337,10 +417,6 @@ export default function App() {
             }}
             onOpenCart={() => setIsCartOpen(true)}
             onOpenStatusModal={() => setIsStatusModalOpen(true)}
-            onTableIdentified={(tId) => {
-              setSelectedTableId(tId);
-              setClientAccessGranted(true);
-            }}
             cartItemCount={cartItems.reduce((acc, i) => acc + i.quantity, 0)}
             cartTotal={cartTotalSum}
           />
@@ -374,14 +450,36 @@ export default function App() {
           />
         </main>
         )
+      ) : !currentUser ? (
+        // Ne devrait pas arriver (Header n'autorise le passage en vue admin
+        // qu'après connexion), mais on évite par sécurité d'afficher une
+        // fausse identité par défaut comme le faisait l'ancien code.
+        <div className="max-w-md mx-auto mt-20 text-center space-y-4">
+          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+            Session expirée ou non authentifiée.
+          </p>
+          <button
+            onClick={() => setIsLoginOpen(true)}
+            className="px-5 py-2.5 bg-[#5A5A40] text-white rounded-2xl font-semibold text-xs"
+          >
+            Se connecter
+          </button>
+        </div>
       ) : (
         /* Staff & Admin Interface Layout */
         <AdminLayout
           activeTab={adminTab}
           onTabChange={(tab) => setAdminTab(tab)}
-          currentUser={currentUser || appState.users[0]}
-          onLogout={() => setCurrentUser(null)}
+          currentUser={currentUser}
+          onLogout={() => { signOut(); setCurrentUser(null); setCurrentView('client'); }}
         >
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-24">
+                <div className="w-8 h-8 border-4 border-[#5A5A40] border-t-transparent rounded-full animate-spin" />
+              </div>
+            }
+          >
           {adminTab === 'dashboard' && (
             <DashboardView
               tables={appState.tables}
@@ -404,7 +502,7 @@ export default function App() {
               onAssignWaiter={(tId, wId) => store.assignWaiterToTable(tId, wId)}
               onMoveOrder={(fromId, toId) => store.moveOrderBetweenTables(fromId, toId)}
               onMergeTables={(srcId, tgtId) => store.mergeTables(srcId, tgtId)}
-              onConfirmOrder={(oId) => store.confirmOrder(oId, currentUser?.id)}
+              onConfirmOrder={(oId) => store.confirmOrder(oId)}
               onOpenCashierForTable={(tId) => {
                 setSelectedTableId(tId);
                 setAdminTab('cashier');
@@ -449,10 +547,12 @@ export default function App() {
 
           {adminTab === 'waiters' && (
             <WaitersView
+              users={appState.users}
               waiters={appState.waiters}
-              onAddWaiter={(w) => store.addWaiter(w)}
+              tables={appState.tables}
+              onCreateAccount={(input) => createStaffAccount(input)}
+              onUpdateUser={(id, up) => store.updateUser(id, up)}
               onUpdateWaiter={(id, up) => store.updateWaiter(id, up)}
-              onDeleteWaiter={(id) => store.deleteWaiter(id)}
             />
           )}
 
@@ -490,6 +590,7 @@ export default function App() {
               onResetData={() => store.resetToDefaultData()}
             />
           )}
+          </Suspense>
         </AdminLayout>
       )}
 
@@ -497,10 +598,10 @@ export default function App() {
       <LoginModal
         isOpen={isLoginOpen}
         onClose={() => setIsLoginOpen(false)}
-        users={appState.users}
         onLoginSuccess={(u) => {
           setCurrentUser(u);
           setCurrentView('admin');
+          setAdminTab(getDefaultAdminTab(u.role));
         }}
       />
     </div>

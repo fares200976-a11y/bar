@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { History, Search, Printer, Calendar, DollarSign, Filter } from 'lucide-react';
+import { History, Search, Printer } from 'lucide-react';
 import { Bill, Order, RestaurantSettings } from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { printThermalReceipt } from '../../utils/export';
@@ -63,6 +63,7 @@ export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({
           className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-800"
         >
           <option value="tous">Tous les statuts</option>
+          <option value="en_attente_validation">À valider (Serveur)</option>
           <option value="terminee">Terminées / Payées</option>
           <option value="annulee">Annulées</option>
           <option value="servie">Servies</option>

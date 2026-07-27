@@ -14,7 +14,7 @@ import {
   RefreshCw,
   QrCode
 } from 'lucide-react';
-import { Table, Order, Waiter, RestaurantSettings, TableStatus } from '../../types';
+import { Table, Order, Waiter, RestaurantSettings, TableStatus, User } from '../../types';
 import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel } from '../../utils/formatters';
 import { store } from '../../services/store';
 
@@ -23,10 +23,12 @@ interface TablesViewProps {
   orders: Order[];
   waiters: Waiter[];
   settings: RestaurantSettings;
+  currentUser?: User | null;
   onUpdateStatus: (tableId: number, status: TableStatus) => void;
   onAssignWaiter: (tableId: number, waiterId: string | undefined) => void;
-  onMoveOrder: (fromTableId: number, toTableId: number) => boolean;
-  onMergeTables: (sourceTableId: number, targetTableId: number) => boolean;
+  onMoveOrder: (fromTableId: number, toTableId: number) => Promise<boolean>;
+  onMergeTables: (sourceTableId: number, targetTableId: number) => Promise<boolean>;
+  onConfirmOrder: (orderId: string) => Promise<boolean>;
   onOpenCashierForTable: (tableId: number) => void;
 }
 
@@ -35,10 +37,12 @@ export const TablesView: React.FC<TablesViewProps> = ({
   orders,
   waiters,
   settings,
+  currentUser,
   onUpdateStatus,
   onAssignWaiter,
   onMoveOrder,
   onMergeTables,
+  onConfirmOrder,
   onOpenCashierForTable,
 }) => {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
@@ -57,9 +61,9 @@ export const TablesView: React.FC<TablesViewProps> = ({
     return activeOrd.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
   };
 
-  const handleMoveSubmit = () => {
+  const handleMoveSubmit = async () => {
     if (selectedTable && targetTableId) {
-      const success = onMoveOrder(selectedTable.id, targetTableId);
+      const success = await onMoveOrder(selectedTable.id, targetTableId);
       if (success) {
         setShowMoveModal(false);
         setSelectedTable(null);
@@ -67,9 +71,9 @@ export const TablesView: React.FC<TablesViewProps> = ({
     }
   };
 
-  const handleMergeSubmit = () => {
+  const handleMergeSubmit = async () => {
     if (selectedTable && targetTableId) {
-      const success = onMergeTables(selectedTable.id, targetTableId);
+      const success = await onMergeTables(selectedTable.id, targetTableId);
       if (success) {
         setShowMergeModal(false);
         setSelectedTable(null);
@@ -82,11 +86,28 @@ export const TablesView: React.FC<TablesViewProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">Plan de Salle & Tables (10 Tables)</h2>
+          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">
+            Plan de Salle & Tables ({tables.length})
+          </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Gérez les 10 tables, suivez les consommations en direct, déplacez et fusionnez les additions.
+            Gérez vos tables (jusqu'à 500), suivez les consommations en direct, déplacez et fusionnez les additions.
           </p>
         </div>
+
+        {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+          <button
+            onClick={async () => {
+              const result = await store.addTable(2);
+              if (!result.success) {
+                alert(result.message || "Impossible d'ajouter une table.");
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold text-xs shadow-md transition-all cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Ajouter une Table</span>
+          </button>
+        )}
       </div>
 
       {/* Tables Grid */}
@@ -100,9 +121,10 @@ export const TablesView: React.FC<TablesViewProps> = ({
           const activeAlarm = store.getState().activeAlarm;
           const isAlarming = activeAlarm?.tableId === table.id;
           const hasCall = activeOrd?.callWaiterRequest || activeOrd?.requestBill;
+          const isPendingValidation = activeOrd?.status === 'en_attente_validation';
           const isNewOrder = activeOrd?.status === 'nouvelle';
           const isNewlyOccupied = table.status === 'occupee' && (!activeOrd || activeOrd.status === 'nouvelle');
-          const shouldBlink = isAlarming || hasCall || isNewOrder || isNewlyOccupied;
+          const shouldBlink = isAlarming || hasCall || isPendingValidation || isNewOrder || isNewlyOccupied;
 
           return (
             <div
@@ -119,12 +141,17 @@ export const TablesView: React.FC<TablesViewProps> = ({
               }`}
             >
               {/* Blinking Badge if action required */}
-              {shouldBlink && (
+              {isPendingValidation ? (
+                <div className="mb-2 px-2.5 py-1 bg-orange-500 text-white rounded-xl font-black text-[10px] flex items-center justify-between gap-1 shadow-md animate-bounce">
+                  <span>🔔 COMMANDE À VALIDER !</span>
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                </div>
+              ) : shouldBlink ? (
                 <div className="mb-2 px-2.5 py-1 bg-rose-600 text-white rounded-xl font-black text-[10px] flex items-center justify-between gap-1 shadow-md animate-bounce">
                   <span>⚡ CLIGNOTE - ACTION REQUISE !</span>
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 </div>
-              )}
+              ) : null}
 
               {/* Table Top Header */}
               <div className="flex items-center justify-between">
@@ -166,6 +193,20 @@ export const TablesView: React.FC<TablesViewProps> = ({
                   {assignedWaiter ? assignedWaiter.name.split(' ')[0] : 'Non assigné'}
                 </span>
               </div>
+
+              {/* Quick self-assign button for a logged-in waiter */}
+              {currentUser?.role === 'serveur' && table.assignedWaiterId !== currentUser.id && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAssignWaiter(table.id, currentUser.id);
+                  }}
+                  className="w-full mt-3 flex items-center justify-center gap-1.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-xs transition-colors cursor-pointer"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>À moi le service !</span>
+                </button>
+              )}
             </div>
           );
         })}
@@ -266,6 +307,28 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 </select>
               </div>
 
+              {/* Commande en attente de validation par le serveur */}
+              {getTableActiveOrder(selectedTable.id)?.status === 'en_attente_validation' && (
+                <div className="p-4 rounded-2xl bg-orange-50 dark:bg-orange-950/40 border-2 border-orange-400 dark:border-orange-800 space-y-3">
+                  <p className="text-xs font-black text-orange-900 dark:text-orange-200 flex items-center gap-1.5">
+                    🔔 Nouvelle commande client — en attente de votre validation
+                  </p>
+                  <p className="text-[11px] text-orange-700 dark:text-orange-300">
+                    Tant que vous ne l'avez pas confirmée, elle n'est pas visible en cuisine.
+                  </p>
+                  <button
+                    onClick={() => {
+                      const order = getTableActiveOrder(selectedTable.id);
+                      if (order) onConfirmOrder(order.id);
+                    }}
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30 transition-colors cursor-pointer"
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    <span>Confirmer & Envoyer en Cuisine</span>
+                  </button>
+                </div>
+              )}
+
               {/* Active Consumption Breakdown */}
               {getTableActiveOrder(selectedTable.id) ? (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2">
@@ -319,7 +382,8 @@ export const TablesView: React.FC<TablesViewProps> = ({
               </div>
 
               {/* Direct Cashier button */}
-              {getTableActiveOrder(selectedTable.id) && (
+              {getTableActiveOrder(selectedTable.id) &&
+                getTableActiveOrder(selectedTable.id)?.status !== 'en_attente_validation' && (
                 <button
                   onClick={() => {
                     const tId = selectedTable.id;

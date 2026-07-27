@@ -1,5 +1,7 @@
+import { supabase } from './supabaseClient';
 import {
   Table,
+  TableStatus,
   MenuItem,
   Category,
   Order,
@@ -13,22 +15,26 @@ import {
   ActiveAlarm,
   OrderStatus,
   PaymentMethod,
-  PaymentBreakdown
+  PaymentBreakdown,
+  CashRegisterClosing,
 } from '../types';
-import {
-  INITIAL_CATEGORIES,
-  INITIAL_MENU,
-  INITIAL_TABLES,
-  INITIAL_WAITERS,
-  INITIAL_USERS,
-  INITIAL_SETTINGS
-} from '../data/initialData';
 import { startContinuousAlarm, stopContinuousAlarm } from '../utils/audioAlarm';
 
-const STORAGE_KEY = 'resto_bar_app_v2';
-const CHANNEL_NAME = 'resto_bar_sync_channel';
+// ============================================================================
+// store.ts — désormais branché sur Supabase (Postgres + Realtime) au lieu de
+// localStorage. L'interface publique (subscribe/getState/méthodes) reste la
+// même qu'avant pour limiter les changements dans les composants existants,
+// mais TOUTES les méthodes sont maintenant asynchrones (elles retournent des
+// Promises), puisqu'elles appellent le réseau.
+//
+// Sécurité : toute action sensible (occuper une table, commander, encaisser,
+// changer un statut...) passe par une fonction RPC Postgres (voir
+// supabase/migrations/0002 et 0004) qui vérifie elle-même le rôle de
+// l'utilisateur connecté — jamais uniquement par une policy RLS générique.
+// ============================================================================
 
 interface AppState {
+  loaded: boolean;
   categories: Category[];
   menu: MenuItem[];
   tables: Table[];
@@ -40,60 +46,53 @@ interface AppState {
   settings: RestaurantSettings;
   notifications: CallNotification[];
   activeAlarm: ActiveAlarm | null;
+  cashRegisterClosings: CashRegisterClosing[];
 }
 
-// BroadcastChannel for instant cross-tab live updates
-let broadcastChannel: BroadcastChannel | null = null;
-if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-  broadcastChannel = new BroadcastChannel(CHANNEL_NAME);
-}
+const DEFAULT_SETTINGS: RestaurantSettings = {
+  name: 'Chargement...',
+  logo: '',
+  address: '',
+  phone: '',
+  email: '',
+  openingHours: '',
+  currency: 'DA',
+  vatRate: 0,
+  serviceRate: 0,
+  primaryColor: '#5A5A40',
+  bgStyle: 'clean',
+  enableLoopAlarm: true,
+  alarmVolume: 0.8,
+};
 
-// Load initial state or local storage state
-function loadState(): AppState {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        categories: parsed.categories || INITIAL_CATEGORIES,
-        menu: parsed.menu || INITIAL_MENU,
-        tables: parsed.tables || INITIAL_TABLES,
-        orders: parsed.orders || [],
-        bills: parsed.bills || [],
-        reservations: parsed.reservations || [],
-        waiters: parsed.waiters || INITIAL_WAITERS,
-        users: parsed.users || INITIAL_USERS,
-        settings: parsed.settings || INITIAL_SETTINGS,
-        notifications: parsed.notifications || [],
-        activeAlarm: parsed.activeAlarm || null,
-      };
-    }
-  } catch (err) {
-    console.error('Error loading state from localStorage:', err);
-  }
+let state: AppState = {
+  loaded: false,
+  categories: [],
+  menu: [],
+  tables: [],
+  orders: [],
+  bills: [],
+  reservations: [],
+  waiters: [],
+  users: [],
+  settings: DEFAULT_SETTINGS,
+  notifications: [],
+  activeAlarm: null,
+  cashRegisterClosings: [],
+};
 
-  return {
-    categories: INITIAL_CATEGORIES,
-    menu: INITIAL_MENU,
-    tables: INITIAL_TABLES,
-    orders: [],
-    bills: [],
-    reservations: [],
-    waiters: INITIAL_WAITERS,
-    users: INITIAL_USERS,
-    settings: INITIAL_SETTINGS,
-    notifications: [],
-    activeAlarm: null,
-  };
-}
-
-let state: AppState = loadState();
 type Listener = (state: AppState) => void;
 const listeners = new Set<Listener>();
 
-// Mémorise l'id de la dernière alarme pour laquelle le son a été (re)lancé,
-// afin de ne PAS relancer l'audio depuis zéro à chaque action du store
-// (ex : changer un plat de disponibilité) alors que l'alarme est déjà en cours.
+function notify() {
+  listeners.forEach((listener) => listener(state));
+}
+
+// ----------------------------------------------------------------------------
+// Audio : alarme en boucle (identique à avant), + sons ponctuels réactifs aux
+// nouvelles notifications détectées après chaque rafraîchissement.
+// ----------------------------------------------------------------------------
+
 let lastSyncedAlarmId: string | null = null;
 
 function syncAlarmAudio() {
@@ -101,7 +100,6 @@ function syncAlarmAudio() {
 
   if (currentAlarmId && state.settings.enableLoopAlarm !== false) {
     if (currentAlarmId !== lastSyncedAlarmId) {
-      // Nouvelle alarme (ou premier chargement) : on (re)démarre le son en boucle.
       lastSyncedAlarmId = currentAlarmId;
       startContinuousAlarm(
         state.settings.alarmSoundType || 'mp3_alarm_clock',
@@ -109,39 +107,30 @@ function syncAlarmAudio() {
         state.settings.alarmVolume ?? 0.8
       );
     }
-    // Sinon : c'est toujours la même alarme, on laisse la boucle déjà en cours
-    // continuer sans la relancer.
   } else {
     lastSyncedAlarmId = null;
     stopContinuousAlarm();
   }
 }
 
-// Initial audio sync
-syncAlarmAudio();
+let knownNotificationIds = new Set<string>();
+let isFirstFetch = true;
 
-function saveStateAndNotify(triggerBroadcast = true) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error('Failed to save to localStorage', e);
+function playSoundsForNewNotifications(newNotifications: CallNotification[]) {
+  if (isFirstFetch) {
+    // Au tout premier chargement, on ne joue aucun son pour l'historique existant.
+    knownNotificationIds = new Set(newNotifications.map((n) => n.id));
+    isFirstFetch = false;
+    return;
   }
-  syncAlarmAudio();
-  listeners.forEach((listener) => listener(state));
-  if (triggerBroadcast && broadcastChannel) {
-    broadcastChannel.postMessage('STATE_UPDATED');
-  }
-}
 
-// Listen for cross-tab messages
-if (broadcastChannel) {
-  broadcastChannel.onmessage = (event) => {
-    if (event.data === 'STATE_UPDATED') {
-      state = loadState();
-      syncAlarmAudio();
-      listeners.forEach((listener) => listener(state));
-    }
-  };
+  const freshOnes = newNotifications.filter((n) => !knownNotificationIds.has(n.id));
+  freshOnes.forEach((n) => {
+    if (n.type === 'kitchen_ready') playChimeSound('ready');
+    else if (n.type === 'new_order') playChimeSound('order');
+    else playChimeSound('call');
+  });
+  knownNotificationIds = new Set(newNotifications.map((n) => n.id));
 }
 
 export function generateRandom4DigitPin(): string {
@@ -157,7 +146,6 @@ export function playDoubleBeepSound() {
     const ctx = new AudioCtx();
     const now = ctx.currentTime;
 
-    // First beep
     const osc1 = ctx.createOscillator();
     const gain1 = ctx.createGain();
     osc1.type = 'sine';
@@ -169,7 +157,6 @@ export function playDoubleBeepSound() {
     osc1.start(now);
     osc1.stop(now + 0.1);
 
-    // Second beep (2bip)
     const osc2 = ctx.createOscillator();
     const gain2 = ctx.createGain();
     osc2.type = 'sine';
@@ -185,7 +172,6 @@ export function playDoubleBeepSound() {
   }
 }
 
-// Sound chime generator using Web Audio API (no external file dependency needed!)
 export function playChimeSound(type: 'order' | 'ready' | 'call' = 'order') {
   try {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -199,17 +185,17 @@ export function playChimeSound(type: 'order' | 'ready' | 'call' = 'order') {
 
     if (type === 'order') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.4);
     } else if (type === 'ready') {
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
-      osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.12); // E5
-      osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.24); // G5
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.12);
+      osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.24);
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
       osc.start(ctx.currentTime);
@@ -217,633 +203,836 @@ export function playChimeSound(type: 'order' | 'ready' | 'call' = 'order') {
     } else {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(783.99, ctx.currentTime);
-      osc.frequency.setValueAtTime(1046.50, ctx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(1046.5, ctx.currentTime + 0.1);
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.3);
     }
   } catch {
-    // Audio Context might be restricted before user interaction
+    // Contexte audio parfois restreint avant une interaction utilisateur.
   }
 }
+
+// ----------------------------------------------------------------------------
+// Mapping lignes Supabase (snake_case) -> types applicatifs (camelCase)
+// ----------------------------------------------------------------------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+function mapCategory(row: any): Category {
+  return { id: row.id, name: row.name, icon: row.icon ?? undefined, order: row.sort_order };
+}
+
+function mapMenuItem(row: any): MenuItem {
+  return {
+    id: row.id,
+    categoryId: row.category_id,
+    name: row.name,
+    description: row.description ?? '',
+    price: Number(row.price),
+    images: row.images || [],
+    videoUrl: row.video_url ?? undefined,
+    prepTimeMinutes: row.prep_time_minutes,
+    isAvailable: row.is_available,
+    stockQuantity: row.stock_quantity,
+    isPromo: row.is_promo ?? undefined,
+    promoPrice: row.promo_price != null ? Number(row.promo_price) : undefined,
+    isRecommended: row.is_recommended ?? undefined,
+    isSpicy: row.is_spicy ?? undefined,
+    allergens: row.allergens || [],
+  };
+}
+
+function mapTable(row: any): Table {
+  return {
+    id: row.id,
+    number: row.number,
+    name: row.name,
+    status: row.status,
+    seats: row.seats,
+    accessCode: row.access_code ?? undefined,
+    assignedWaiterId: row.assigned_waiter_id ?? undefined,
+    activeOrderId: row.active_order_id ?? undefined,
+  };
+}
+
+function mapOrderItem(row: any): OrderItem {
+  return {
+    id: row.id,
+    menuItemId: row.menu_item_id,
+    name: row.name,
+    unitPrice: Number(row.unit_price),
+    quantity: row.quantity,
+    notes: row.notes ?? undefined,
+    status: row.status,
+  };
+}
+
+function mapOrder(row: any, items: any[]): Order {
+  return {
+    id: row.id,
+    orderNumber: row.order_number,
+    tableId: row.table_id,
+    waiterId: row.waiter_id ?? undefined,
+    items: items.map(mapOrderItem),
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    specialRequests: row.special_requests ?? undefined,
+    callWaiterRequest: row.call_waiter_request ?? undefined,
+    requestBill: row.request_bill ?? undefined,
+    billRequestedAt: row.bill_requested_at ?? undefined,
+    confirmedByWaiterId: row.confirmed_by_waiter_id ?? undefined,
+    confirmedAt: row.confirmed_at ?? undefined,
+  };
+}
+
+function mapBill(row: any): Bill {
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    tableId: row.table_id,
+    subtotal: Number(row.subtotal),
+    taxRate: Number(row.tax_rate),
+    taxAmount: Number(row.tax_amount),
+    serviceRate: Number(row.service_rate),
+    serviceAmount: Number(row.service_amount),
+    discountAmount: Number(row.discount_amount),
+    total: Number(row.total),
+    paymentMethod: row.payment_method,
+    paymentsBreakdown: row.payments_breakdown ?? undefined,
+    cashReceived: row.cash_received != null ? Number(row.cash_received) : undefined,
+    changeGiven: row.change_given != null ? Number(row.change_given) : undefined,
+    paidAt: row.paid_at,
+    processedByUserId: row.processed_by_user_id ?? undefined,
+  };
+}
+
+function mapReservation(row: any): Reservation {
+  return {
+    id: row.id,
+    tableId: row.table_id,
+    clientName: row.client_name,
+    clientPhone: row.client_phone,
+    guestCount: row.guest_count,
+    dateTime: row.date_time,
+    notes: row.notes ?? undefined,
+    status: row.status,
+  };
+}
+
+function mapProfileToUser(row: any): User {
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    role: row.role,
+    phone: row.phone ?? undefined,
+    avatar: row.avatar ?? undefined,
+    active: row.active,
+  };
+}
+
+const DEFAULT_WAITER_AVATAR =
+  'https://images.unsplash.com/photo-1633332755192-727a05c4013d?auto=format&fit=crop&w=200&q=80';
+
+function deriveWaiters(profileRows: any[], tables: Table[]): Waiter[] {
+  return profileRows
+    .filter((p) => p.role === 'serveur')
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      photo: p.avatar || DEFAULT_WAITER_AVATAR,
+      phone: p.phone || '',
+      pinCode: p.pin_code ?? undefined,
+      isOnline: p.is_online,
+      assignedTableIds: tables.filter((t) => t.assignedWaiterId === p.id).map((t) => t.id),
+    }));
+}
+
+function mapSettings(row: any): RestaurantSettings {
+  return {
+    name: row.name,
+    logo: row.logo ?? '',
+    address: row.address ?? '',
+    phone: row.phone ?? '',
+    email: row.email ?? '',
+    openingHours: row.opening_hours ?? '',
+    currency: row.currency,
+    vatRate: Number(row.vat_rate),
+    serviceRate: Number(row.service_rate),
+    primaryColor: row.primary_color,
+    bgStyle: row.bg_style,
+    cloudinaryCloudName: row.cloudinary_cloud_name ?? undefined,
+    alarmSoundType: row.alarm_sound_type ?? undefined,
+    customAudioUrl: row.custom_audio_url ?? undefined,
+    enableLoopAlarm: row.enable_loop_alarm,
+    alarmVolume: row.alarm_volume != null ? Number(row.alarm_volume) : undefined,
+  };
+}
+
+function mapNotification(row: any): CallNotification {
+  return {
+    id: row.id,
+    tableId: row.table_id,
+    type: row.type,
+    message: row.message,
+    timestamp: row.created_at,
+    read: row.read,
+  };
+}
+
+function mapActiveAlarm(row: any): ActiveAlarm | null {
+  if (!row || !row.table_id) return null;
+  return {
+    id: row.created_at || `alarm-${row.table_id}`,
+    tableId: row.table_id,
+    orderNumber: row.order_number ?? undefined,
+    message: row.message || '',
+    type: row.type,
+    timestamp: row.created_at,
+  };
+}
+
+function mapCashRegisterClosing(row: any): CashRegisterClosing {
+  return {
+    id: row.id,
+    closedByUserId: row.closed_by ?? undefined,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    openingFloat: Number(row.opening_float),
+    expectedCash: Number(row.expected_cash),
+    declaredCash: Number(row.declared_cash),
+    difference: Number(row.difference),
+    notes: row.notes ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// ----------------------------------------------------------------------------
+// Chargement complet de l'état depuis Supabase
+// ----------------------------------------------------------------------------
+
+let fetchInFlight: Promise<void> | null = null;
+
+async function fetchAll(): Promise<void> {
+  // Évite les rafraîchissements concurrents qui se chevauchent (plusieurs
+  // événements Realtime arrivant en rafale).
+  if (fetchInFlight) return fetchInFlight;
+
+  fetchInFlight = (async () => {
+    const [
+      profilesRes,
+      categoriesRes,
+      menuRes,
+      tablesRes,
+      ordersRes,
+      orderItemsRes,
+      billsRes,
+      reservationsRes,
+      settingsRes,
+      notificationsRes,
+      alarmRes,
+      cashClosingsRes,
+    ] = await Promise.all([
+      supabase.from('profiles').select('*'),
+      supabase.from('categories').select('*').order('sort_order'),
+      supabase.from('menu_items').select('*'),
+      supabase.from('restaurant_tables').select('*').order('id'),
+      supabase.from('orders').select('*').order('created_at', { ascending: false }),
+      supabase.from('order_items').select('*'),
+      supabase.from('bills').select('*').order('paid_at', { ascending: false }),
+      supabase.from('reservations').select('*'),
+      supabase.from('restaurant_settings').select('*').eq('id', true).maybeSingle(),
+      supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(30),
+      supabase.from('active_alarm').select('*').eq('id', true).maybeSingle(),
+      supabase.from('cash_register_closings').select('*').order('created_at', { ascending: false }).limit(20),
+    ]);
+
+    const tables = (tablesRes.data || []).map(mapTable);
+
+    const itemsByOrder = new Map<string, unknown[]>();
+    (orderItemsRes.data || []).forEach((it: { order_id: string }) => {
+      const list = (itemsByOrder.get(it.order_id) as unknown[]) || [];
+      list.push(it);
+      itemsByOrder.set(it.order_id, list);
+    });
+
+    const orders = (ordersRes.data || []).map((o: { id: string }) =>
+      mapOrder(o, (itemsByOrder.get(o.id) as never[]) || [])
+    );
+
+    const notifications = (notificationsRes.data || []).map(mapNotification);
+    playSoundsForNewNotifications(notifications);
+
+    state = {
+      loaded: true,
+      categories: (categoriesRes.data || []).map(mapCategory),
+      menu: (menuRes.data || []).map(mapMenuItem),
+      tables,
+      orders,
+      bills: (billsRes.data || []).map(mapBill),
+      reservations: (reservationsRes.data || []).map(mapReservation),
+      waiters: deriveWaiters(profilesRes.data || [], tables),
+      users: (profilesRes.data || []).map(mapProfileToUser),
+      settings: settingsRes.data ? mapSettings(settingsRes.data) : state.settings,
+      notifications,
+      activeAlarm: mapActiveAlarm(alarmRes.data),
+      cashRegisterClosings: (cashClosingsRes.data || []).map(mapCashRegisterClosing),
+    };
+
+    syncAlarmAudio();
+    notify();
+  })();
+
+  try {
+    await fetchInFlight;
+  } finally {
+    fetchInFlight = null;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Realtime : toute modification faite par N'IMPORTE QUEL appareil connecté
+// (client, serveur, cuisine, admin...) redéclenche un rafraîchissement complet.
+// Simple et fiable — le volume de données d'un bar-restaurant reste modeste.
+// ----------------------------------------------------------------------------
+
+function initRealtime() {
+  const tablesToWatch = [
+    'orders',
+    'order_items',
+    'restaurant_tables',
+    'notifications',
+    'active_alarm',
+    'profiles',
+    'menu_items',
+    'categories',
+    'reservations',
+    'restaurant_settings',
+    'bills',
+    'cash_register_closings',
+  ];
+
+  const channel = supabase.channel('app-state-sync');
+  tablesToWatch.forEach((table) => {
+    channel.on(
+      'postgres_changes' as never,
+      { event: '*', schema: 'public', table },
+      () => {
+        fetchAll();
+      }
+    );
+  });
+  channel.subscribe();
+}
+
+// Démarrage : premier chargement + écoute temps réel.
+if (typeof window !== 'undefined') {
+  fetchAll();
+  initRealtime();
+}
+
+// ----------------------------------------------------------------------------
+// API publique du store
+// ----------------------------------------------------------------------------
 
 export const store = {
   subscribe(listener: Listener) {
     listeners.add(listener);
+    if (state.loaded) listener(state);
     return () => listeners.delete(listener);
   },
   getState(): AppState {
     return state;
   },
 
-  // --- MENU & CATEGORIES ---
-  addCategory(name: string, icon?: string) {
-    const newCat: Category = {
-      id: `cat-${Date.now()}`,
-      name,
-      icon,
-      order: state.categories.length + 1,
-    };
-    state.categories = [...state.categories, newCat];
-    saveStateAndNotify();
+  // --- MENU & CATEGORIES (admin/manager — cf. policies categories_write_admin / menu_items_write_admin) ---
+  async addCategory(name: string, icon?: string) {
+    await supabase.from('categories').insert({ name, icon, sort_order: state.categories.length + 1 });
+    await fetchAll();
   },
 
-  deleteCategory(catId: string) {
-    state.categories = state.categories.filter((c) => c.id !== catId);
-    saveStateAndNotify();
+  async deleteCategory(catId: string) {
+    await supabase.from('categories').delete().eq('id', catId);
+    await fetchAll();
   },
 
-  addMenuItem(item: Omit<MenuItem, 'id'>) {
-    const newItem: MenuItem = {
-      ...item,
-      id: `item-${Date.now()}`,
-    };
-    state.menu = [...state.menu, newItem];
-    saveStateAndNotify();
+  async addMenuItem(item: Omit<MenuItem, 'id'>) {
+    await supabase.from('menu_items').insert({
+      category_id: item.categoryId,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      images: item.images,
+      video_url: item.videoUrl,
+      prep_time_minutes: item.prepTimeMinutes,
+      is_available: item.isAvailable,
+      stock_quantity: item.stockQuantity,
+      is_promo: item.isPromo ?? false,
+      promo_price: item.promoPrice,
+      is_recommended: item.isRecommended ?? false,
+      is_spicy: item.isSpicy ?? false,
+      allergens: item.allergens,
+    });
+    await fetchAll();
   },
 
-  updateMenuItem(id: string, updates: Partial<MenuItem>) {
-    state.menu = state.menu.map((item) => (item.id === id ? { ...item, ...updates } : item));
-    saveStateAndNotify();
+  async updateMenuItem(id: string, updates: Partial<MenuItem>) {
+    const payload: Record<string, unknown> = {};
+    if (updates.categoryId !== undefined) payload.category_id = updates.categoryId;
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.description !== undefined) payload.description = updates.description;
+    if (updates.price !== undefined) payload.price = updates.price;
+    if (updates.images !== undefined) payload.images = updates.images;
+    if (updates.videoUrl !== undefined) payload.video_url = updates.videoUrl;
+    if (updates.prepTimeMinutes !== undefined) payload.prep_time_minutes = updates.prepTimeMinutes;
+    if (updates.isAvailable !== undefined) payload.is_available = updates.isAvailable;
+    if (updates.stockQuantity !== undefined) payload.stock_quantity = updates.stockQuantity;
+    if (updates.isPromo !== undefined) payload.is_promo = updates.isPromo;
+    if (updates.promoPrice !== undefined) payload.promo_price = updates.promoPrice;
+    if (updates.isRecommended !== undefined) payload.is_recommended = updates.isRecommended;
+    if (updates.isSpicy !== undefined) payload.is_spicy = updates.isSpicy;
+    if (updates.allergens !== undefined) payload.allergens = updates.allergens;
+
+    await supabase.from('menu_items').update(payload).eq('id', id);
+    await fetchAll();
   },
 
-  deleteMenuItem(id: string) {
-    state.menu = state.menu.filter((item) => item.id !== id);
-    saveStateAndNotify();
+  async deleteMenuItem(id: string) {
+    await supabase.from('menu_items').delete().eq('id', id);
+    await fetchAll();
   },
 
-  toggleItemAvailability(id: string) {
-    state.menu = state.menu.map((item) =>
-      item.id === id ? { ...item, isAvailable: !item.isAvailable } : item
-    );
-    saveStateAndNotify();
+  async toggleItemAvailability(id: string) {
+    const item = state.menu.find((m) => m.id === id);
+    if (!item) return;
+    await supabase.from('menu_items').update({ is_available: !item.isAvailable }).eq('id', id);
+    await fetchAll();
   },
 
   // --- TABLES ---
-  updateTableStatus(tableId: number, status: Table['status']) {
-    state.tables = state.tables.map((t) => {
-      if (t.id === tableId) {
-        // Automatically regenerate 4-digit PIN code when table becomes free (libre)
-        const newPin = status === 'libre' ? generateRandom4DigitPin() : (t.accessCode || generateRandom4DigitPin());
-        return { ...t, status, accessCode: newPin };
-      }
-      return t;
+  async addTable(seats: number = 2): Promise<{ success: boolean; message?: string }> {
+    if (state.tables.length >= 500) {
+      return { success: false, message: 'Limite de 500 tables atteinte.' };
+    }
+    const nextId = state.tables.length > 0 ? Math.max(...state.tables.map((t) => t.id)) + 1 : 1;
+    const pin = generateRandom4DigitPin();
+    const { error } = await supabase.from('restaurant_tables').insert({
+      id: nextId,
+      number: nextId,
+      name: `Table ${nextId}`,
+      status: 'libre',
+      seats,
+      access_code: pin,
     });
-    saveStateAndNotify();
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
   },
 
-  verifyAndOccupyTable(tableId: number, code: string): { success: boolean; message: string } {
+  async updateTableStatus(tableId: number, status: TableStatus) {
     const table = state.tables.find((t) => t.id === tableId);
-    if (!table) {
-      return { success: false, message: 'Table introuvable.' };
-    }
-
-    const enteredCode = code.trim();
-    if (table.accessCode && table.accessCode !== enteredCode) {
-      return { success: false, message: 'Code à 4 chiffres incorrect pour cette table.' };
-    }
-
-    // Set table status to 'occupee'
-    const wasLibre = table.status === 'libre';
-    state.tables = state.tables.map((t) =>
-      t.id === tableId ? { ...t, status: 'occupee' } : t
-    );
-
-    // Play double beep sound alert for waiter & admin
-    playDoubleBeepSound();
-
-    this.addNotification(
-      tableId,
-      'waiter_call',
-      `Table ${tableId} scannée et activée (Occupée) via le Code QR [${enteredCode || table.accessCode}]`
-    );
-
-    // Persistent siren alarm so waiters & admin notice even if not looking at the screen
-    if (wasLibre) {
-      state.activeAlarm = {
-        id: `alarm-${Date.now()}`,
-        tableId,
-        message: `Table ${tableId} activée par un client (Scan QR Code)`,
-        type: 'waiter_call',
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    saveStateAndNotify();
-    return {
-      success: true,
-      message: wasLibre
-        ? `Table ${tableId} activée avec succès ! Statut changé en OCCUPÉE.`
-        : `Accès validé pour la Table ${tableId}.`,
-    };
+    const newPin = status === 'libre' ? generateRandom4DigitPin() : table?.accessCode || generateRandom4DigitPin();
+    await supabase.from('restaurant_tables').update({ status, access_code: newPin }).eq('id', tableId);
+    await fetchAll();
   },
 
-  // Used on the client landing page: the client only knows their table's 4-digit code,
-  // not which "table number" is currently selected in the app, so we search across ALL
-  // tables for a match instead of requiring a table to be pre-selected first.
-  verifyAndOccupyTableByCode(code: string): { success: boolean; message: string; tableId?: number } {
-    const enteredCode = code.trim();
-    if (enteredCode.length !== 4) {
-      return { success: false, message: 'Veuillez saisir les 4 chiffres du code affiché sur votre table.' };
-    }
-
-    const table = state.tables.find((t) => t.accessCode === enteredCode);
-    if (!table) {
-      return { success: false, message: "Code invalide. Vérifiez le code à 4 chiffres affiché sur votre table." };
-    }
-
-    const wasLibre = table.status === 'libre';
-    state.tables = state.tables.map((t) =>
-      t.id === table.id ? { ...t, status: 'occupee' } : t
-    );
-
-    playDoubleBeepSound();
-
-    this.addNotification(
-      table.id,
-      'waiter_call',
-      `Table ${table.id} scannée et activée (Occupée) via le Code [${enteredCode}]`
-    );
-
-    if (wasLibre) {
-      state.activeAlarm = {
-        id: `alarm-${Date.now()}`,
-        tableId: table.id,
-        message: `Table ${table.id} activée par un client (Code saisi)`,
-        type: 'waiter_call',
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    saveStateAndNotify();
-    return {
-      success: true,
-      tableId: table.id,
-      message: wasLibre
-        ? `Table ${table.id} activée avec succès ! Statut changé en OCCUPÉE.`
-        : `Accès validé pour la Table ${table.id}.`,
-    };
+  async verifyAndOccupyTable(tableId: number, code: string): Promise<{ success: boolean; message: string }> {
+    const { data, error } = await supabase.rpc('verify_and_occupy_table', { p_table_id: tableId, p_code: code });
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    return { success: row?.success ?? false, message: row?.message ?? '' };
   },
 
-  regenerateTablePin(tableId: number): string {
-    const newPin = generateRandom4DigitPin();
-    state.tables = state.tables.map((t) =>
-      t.id === tableId ? { ...t, accessCode: newPin } : t
-    );
-    saveStateAndNotify();
-    return newPin;
+  async verifyAndOccupyTableByCode(
+    code: string
+  ): Promise<{ success: boolean; message: string; tableId?: number }> {
+    const { data, error } = await supabase.rpc('verify_and_occupy_table_by_code', { p_code: code });
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    return { success: row?.success ?? false, message: row?.message ?? '', tableId: row?.table_id ?? undefined };
   },
 
-  assignWaiterToTable(tableId: number, waiterId: string | undefined) {
-    state.tables = state.tables.map((t) =>
-      t.id === tableId ? { ...t, assignedWaiterId: waiterId } : t
-    );
-    saveStateAndNotify();
+  async regenerateTablePin(tableId: number): Promise<string> {
+    const { data, error } = await supabase.rpc('regenerate_table_pin', { p_table_id: tableId });
+    await fetchAll();
+    if (error) throw error;
+    return data as string;
   },
 
-  moveOrderBetweenTables(fromTableId: number, toTableId: number) {
-    const activeOrder = state.orders.find(
-      (o) => o.tableId === fromTableId && o.status !== 'terminee' && o.status !== 'annulee'
-    );
-    if (!activeOrder) return false;
+  async assignWaiterToTable(tableId: number, waiterId: string | undefined) {
+    // Un serveur qui clique "À moi le service !" sur une table libre s'auto-assigne :
+    // ça doit passer par la RPC claim_table (les policies RLS directes n'autorisent
+    // pas un serveur à s'assigner une table qui ne lui appartenait pas encore).
+    // Un admin/manager qui choisit un AUTRE serveur dans le menu déroulant, en
+    // revanche, passe par la mise à jour directe (autorisée par tables_write_admin).
+    const { data: authData } = await supabase.auth.getUser();
+    const isSelfClaim = Boolean(waiterId) && authData.user?.id === waiterId;
 
-    // Update order tableId
-    state.orders = state.orders.map((o) =>
-      o.id === activeOrder.id ? { ...o, tableId: toTableId } : o
-    );
+    if (isSelfClaim) {
+      await supabase.rpc('claim_table', { p_table_id: tableId });
+    } else {
+      await supabase.from('restaurant_tables').update({ assigned_waiter_id: waiterId ?? null }).eq('id', tableId);
+    }
+    await fetchAll();
+  },
 
-    // Update source table to libre, target table to commande_en_cours
-    const fromTableObj = state.tables.find((t) => t.id === fromTableId);
-    state.tables = state.tables.map((t) => {
-      if (t.id === fromTableId) return { ...t, status: 'libre', activeOrderId: undefined };
-      if (t.id === toTableId) return { ...t, status: 'commande_en_cours', activeOrderId: activeOrder.id };
-      return t;
+  async claimTable(tableId: number): Promise<boolean> {
+    const { error } = await supabase.rpc('claim_table', { p_table_id: tableId });
+    await fetchAll();
+    return !error;
+  },
+
+  async moveOrderBetweenTables(fromTableId: number, toTableId: number): Promise<boolean> {
+    const { data, error } = await supabase.rpc('move_order_between_tables', {
+      p_from_table_id: fromTableId,
+      p_to_table_id: toTableId,
     });
-
-    this.addNotification(toTableId, 'new_order', `Commande transférée de Table ${fromTableId} vers Table ${toTableId}`);
-    saveStateAndNotify();
-    return true;
+    await fetchAll();
+    return !error && Boolean(data);
   },
 
-  mergeTables(sourceTableId: number, targetTableId: number) {
-    const sourceOrder = state.orders.find(
-      (o) => o.tableId === sourceTableId && o.status !== 'terminee' && o.status !== 'annulee'
-    );
-    const targetOrder = state.orders.find(
-      (o) => o.tableId === targetTableId && o.status !== 'terminee' && o.status !== 'annulee'
-    );
-
-    if (!sourceOrder) return false;
-
-    if (!targetOrder) {
-      // Just move source order to target
-      return this.moveOrderBetweenTables(sourceTableId, targetTableId);
-    }
-
-    // Combine items into target order
-    const mergedItems = [...targetOrder.items, ...sourceOrder.items];
-    state.orders = state.orders.map((o) => {
-      if (o.id === targetOrder.id) {
-        return {
-          ...o,
-          items: mergedItems,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      if (o.id === sourceOrder.id) {
-        return {
-          ...o,
-          status: 'annulee',
-          specialRequests: `Fusionnée avec Table ${targetTableId}`,
-        };
-      }
-      return o;
+  async mergeTables(sourceTableId: number, targetTableId: number): Promise<boolean> {
+    const { data, error } = await supabase.rpc('merge_tables', {
+      p_source_table_id: sourceTableId,
+      p_target_table_id: targetTableId,
     });
-
-    state.tables = state.tables.map((t) => {
-      if (t.id === sourceTableId) return { ...t, status: 'libre', activeOrderId: undefined };
-      return t;
-    });
-
-    this.addNotification(targetTableId, 'new_order', `Tables ${sourceTableId} et ${targetTableId} fusionnées!`);
-    saveStateAndNotify();
-    return true;
+    await fetchAll();
+    return !error && Boolean(data);
   },
 
   // --- ORDERS ---
-  createOrder(tableId: number, items: Array<{ menuItem: MenuItem; quantity: number; notes?: string }>): Order {
-    const newOrderNumber = state.orders.length + 101;
-    const tableObj = state.tables.find((t) => t.id === tableId);
-
-    const orderItems = items.map((i, idx) => ({
-      id: `oi-${Date.now()}-${idx}`,
-      menuItemId: i.menuItem.id,
-      name: i.menuItem.name,
-      unitPrice: i.menuItem.isPromo && i.menuItem.promoPrice ? i.menuItem.promoPrice : i.menuItem.price,
-      quantity: i.quantity,
-      notes: i.notes,
-      status: 'nouvelle' as const,
-    }));
-
-    // Deduct stock quantity automatically
-    state.menu = state.menu.map((menuItem) => {
-      const ordered = items.find((i) => i.menuItem.id === menuItem.id);
-      if (ordered) {
-        const remaining = Math.max(0, menuItem.stockQuantity - ordered.quantity);
-        return {
-          ...menuItem,
-          stockQuantity: remaining,
-          isAvailable: remaining > 0,
-        };
-      }
-      return menuItem;
+  async createOrder(
+    tableId: number,
+    items: Array<{ menuItem: MenuItem; quantity: number; notes?: string }>
+  ): Promise<Order | null> {
+    const payload = items.map((i) => ({ menuItemId: i.menuItem.id, quantity: i.quantity, notes: i.notes }));
+    const { data: orderId, error } = await supabase.rpc('create_client_order', {
+      p_table_id: tableId,
+      p_items: payload,
     });
-
-    const newOrder: Order = {
-      id: `ord-${Date.now()}`,
-      orderNumber: newOrderNumber,
-      tableId,
-      waiterId: tableObj?.assignedWaiterId,
-      items: orderItems,
-      status: 'en_attente_validation',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    state.orders = [newOrder, ...state.orders];
-
-    // Set table status to 'commande_en_cours'
-    state.tables = state.tables.map((t) =>
-      t.id === tableId ? { ...t, status: 'commande_en_cours', activeOrderId: newOrder.id } : t
-    );
-
-    this.addNotification(
-      tableId,
-      'new_order',
-      `Nouvelle commande (#${newOrderNumber}) pour Table ${tableId} — en attente de validation du serveur`
-    );
-    playChimeSound('order');
-
-    // Trigger persistent audio alarm for waiters and admin until manually stopped
-    // (ou jusqu'à ce que le serveur confirme la commande, voir confirmOrder ci-dessous)
-    state.activeAlarm = {
-      id: `alarm-${Date.now()}`,
-      tableId,
-      orderNumber: newOrderNumber,
-      message: `Commande Table ${tableId} (#${newOrderNumber}) à valider par le serveur`,
-      type: 'new_order',
-      timestamp: new Date().toISOString(),
-    };
-
-    saveStateAndNotify();
-    return newOrder;
+    await fetchAll();
+    if (error || !orderId) return null;
+    return state.orders.find((o) => o.id === orderId) || null;
   },
 
-  // Le serveur (ou l'admin) confirme la commande passée par le client : elle devient
-  // alors visible en cuisine ('nouvelle') et l'alarme liée est coupée puisqu'un humain
-  // vient d'en prendre la responsabilité.
-  confirmOrder(orderId: string, waiterId?: string): boolean {
-    const order = state.orders.find((o) => o.id === orderId);
-    if (!order || order.status !== 'en_attente_validation') return false;
-
-    state.orders = state.orders.map((o) =>
-      o.id === orderId
-        ? {
-            ...o,
-            status: 'nouvelle',
-            waiterId: waiterId || o.waiterId,
-            confirmedByWaiterId: waiterId,
-            confirmedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          }
-        : o
-    );
-
-    this.addNotification(
-      order.tableId,
-      'new_order',
-      `Commande #${order.orderNumber} confirmée — transmise en cuisine (Table ${order.tableId})`
-    );
-
-    // Si l'alarme active correspond bien à cette commande, on l'éteint : la confirmation
-    // du serveur vaut prise en charge.
-    if (
-      state.activeAlarm &&
-      state.activeAlarm.tableId === order.tableId &&
-      state.activeAlarm.orderNumber === order.orderNumber
-    ) {
-      state.activeAlarm = null;
-    }
-
-    saveStateAndNotify();
-    return true;
+  async confirmOrder(orderId: string): Promise<boolean> {
+    const { data, error } = await supabase.rpc('confirm_order', { p_order_id: orderId });
+    await fetchAll();
+    return !error && Boolean(data);
   },
 
-  updateOrderStatus(orderId: string, status: OrderStatus) {
-    const existingOrder = state.orders.find((o) => o.id === orderId);
-    if (!existingOrder) return;
-
-    state.orders = state.orders.map((o) => {
-      if (o.id === orderId) {
-        const updatedItems = o.items.map((item) => ({
-          ...item,
-          status: status === 'prete' ? ('prete' as const) : status === 'servie' ? ('servie' as const) : item.status,
-        }));
-        return {
-          ...o,
-          status,
-          items: updatedItems,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      return o;
-    });
-
-    if (status === 'prete') {
-      this.addNotification(existingOrder.tableId, 'kitchen_ready', `Plat(s) PRÊT(S) pour Table ${existingOrder.tableId}!`);
-      playChimeSound('ready');
-    }
-
-    saveStateAndNotify();
+  async updateOrderStatus(orderId: string, status: OrderStatus) {
+    await supabase.rpc('update_order_status', { p_order_id: orderId, p_status: status });
+    await fetchAll();
   },
 
-  updateOrderItemStatus(orderId: string, itemId: string, itemStatus: OrderItem['status']) {
-    state.orders = state.orders.map((o) => {
-      if (o.id === orderId) {
-        const items = o.items.map((i) => (i.id === itemId ? { ...i, status: itemStatus } : i));
-        // If all items are prete, mark overall order prete
-        const allPrete = items.every((i) => i.status === 'prete' || i.status === 'servie' || i.status === 'annulee');
-        return {
-          ...o,
-          items,
-          status: allPrete ? 'prete' : o.status,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      return o;
-    });
-    saveStateAndNotify();
+  async updateOrderItemStatus(orderId: string, itemId: string, itemStatus: OrderItem['status']) {
+    await supabase.rpc('update_order_item_status', { p_order_id: orderId, p_item_id: itemId, p_status: itemStatus });
+    await fetchAll();
   },
 
-  callWaiter(tableId: number) {
-    state.orders = state.orders.map((o) =>
-      o.tableId === tableId && o.status !== 'terminee' ? { ...o, callWaiterRequest: true } : o
-    );
-    this.addNotification(tableId, 'waiter_call', `Appel Serveur à la Table ${tableId}`);
-    playChimeSound('call');
-
-    state.activeAlarm = {
-      id: `alarm-${Date.now()}`,
-      tableId,
-      message: `Appel serveur Table ${tableId}`,
-      type: 'waiter_call',
-      timestamp: new Date().toISOString(),
-    };
-
-    saveStateAndNotify();
+  async callWaiter(tableId: number) {
+    await supabase.rpc('client_call_waiter', { p_table_id: tableId });
+    await fetchAll();
   },
 
-  requestBill(tableId: number) {
-    state.orders = state.orders.map((o) =>
-      o.tableId === tableId && o.status !== 'terminee'
-        ? { ...o, requestBill: true, billRequestedAt: new Date().toISOString() }
-        : o
-    );
-    this.addNotification(tableId, 'bill_request', `Table ${tableId} demande L'ADDITION!`);
-    playChimeSound('call');
-
-    state.activeAlarm = {
-      id: `alarm-${Date.now()}`,
-      tableId,
-      message: `Demande d'addition Table ${tableId}`,
-      type: 'bill_request',
-      timestamp: new Date().toISOString(),
-    };
-
-    saveStateAndNotify();
+  async requestBill(tableId: number) {
+    await supabase.rpc('client_request_bill', { p_table_id: tableId });
+    await fetchAll();
   },
 
-  stopAlarm() {
-    state.activeAlarm = null;
+  async stopAlarm() {
+    await supabase.rpc('stop_alarm');
     stopContinuousAlarm();
-    saveStateAndNotify();
+    await fetchAll();
   },
 
-  dismissTableCall(tableId: number) {
-    state.orders = state.orders.map((o) =>
-      o.tableId === tableId ? { ...o, callWaiterRequest: false, requestBill: false } : o
-    );
-    saveStateAndNotify();
+  async dismissTableCall(tableId: number) {
+    await supabase.rpc('dismiss_table_call', { p_table_id: tableId });
+    await fetchAll();
   },
 
   // --- BILLS & PAYMENTS ---
-  processBillPayment(
+  async processBillPayment(
     orderId: string,
     paymentMethod: PaymentMethod,
     discountAmount = 0,
     cashReceived = 0,
     paymentsBreakdown?: PaymentBreakdown[],
-    processedUserId?: string
-  ): Bill | null {
-    const order = state.orders.find((o) => o.id === orderId);
-    if (!order) return null;
+    _processedUserId?: string
+  ): Promise<Bill | null> {
+    const { data: billId, error } = await supabase.rpc('process_bill_payment', {
+      p_order_id: orderId,
+      p_payment_method: paymentMethod,
+      p_discount: discountAmount,
+      p_cash_received: cashReceived || null,
+      p_breakdown: paymentsBreakdown ?? null,
+    });
+    await fetchAll();
+    if (error || !billId) return null;
+    return state.bills.find((b) => b.id === billId) || null;
+  },
 
-    const subtotal = order.items.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
-    const taxRate = state.settings.vatRate ?? 0;
-    const serviceRate = state.settings.serviceRate ?? 0;
+  // --- RESERVATIONS ---
+  async addReservation(res: Omit<Reservation, 'id'>) {
+    await supabase.from('reservations').insert({
+      table_id: res.tableId,
+      client_name: res.clientName,
+      client_phone: res.clientPhone,
+      guest_count: res.guestCount,
+      date_time: res.dateTime,
+      notes: res.notes,
+      status: res.status,
+    });
+    await supabase.from('restaurant_tables').update({ status: 'reservee' }).eq('id', res.tableId);
+    await fetchAll();
+  },
 
-    const taxAmount = (subtotal * taxRate) / 100;
-    const serviceAmount = (subtotal * serviceRate) / 100;
-    const total = Math.max(0, subtotal + taxAmount + serviceAmount - discountAmount);
+  async cancelReservation(id: string) {
+    await supabase.from('reservations').update({ status: 'annulée' }).eq('id', id);
+    await fetchAll();
+  },
 
-    const changeGiven = cashReceived > total ? cashReceived - total : 0;
-
-    const newBill: Bill = {
-      id: `bill-${Date.now()}`,
-      orderId: order.id,
-      tableId: order.tableId,
-      subtotal,
-      taxRate,
-      taxAmount,
-      serviceRate,
-      serviceAmount,
-      discountAmount,
-      total,
-      paymentMethod,
-      paymentsBreakdown,
-      cashReceived: cashReceived || undefined,
-      changeGiven: changeGiven || undefined,
-      paidAt: new Date().toISOString(),
-      processedByUserId: processedUserId,
-    };
-
-    state.bills = [newBill, ...state.bills];
-
-    // Mark order as terminee
-    state.orders = state.orders.map((o) => (o.id === orderId ? { ...o, status: 'terminee' } : o));
-
-    // Release table and automatically change its 4-digit code
-    state.tables = state.tables.map((t) =>
-      t.id === order.tableId
-        ? {
-            ...t,
-            status: 'libre',
-            activeOrderId: undefined,
-            accessCode: generateRandom4DigitPin(),
-          }
-        : t
+  // --- WAITERS (= profiles avec role='serveur') ---
+  // La CRÉATION d'un compte (Supabase Auth + profil) nécessite la clé service :
+  // impossible et volontairement bloqué depuis le navigateur. Utilisez l'Edge
+  // Function `create-staff-user`.
+  async addWaiter(): Promise<never> {
+    throw new Error(
+      "Impossible de créer un compte serveur directement depuis le navigateur. Utilisez l'écran d'administration relié à l'Edge Function create-staff-user."
     );
-
-    saveStateAndNotify();
-    return newBill;
   },
 
-  // --- RESERVATION ---
-  addReservation(res: Omit<Reservation, 'id'>) {
-    const newRes: Reservation = {
-      ...res,
-      id: `res-${Date.now()}`,
-    };
-    state.reservations = [...state.reservations, newRes];
+  async updateWaiter(id: string, updates: Partial<Waiter>) {
+    const profilePayload: Record<string, unknown> = {};
+    if (updates.name !== undefined) profilePayload.name = updates.name;
+    if (updates.phone !== undefined) profilePayload.phone = updates.phone;
+    if (updates.photo !== undefined) profilePayload.avatar = updates.photo;
+    if (updates.pinCode !== undefined) profilePayload.pin_code = updates.pinCode;
+    if (updates.isOnline !== undefined) profilePayload.is_online = updates.isOnline;
 
-    // Mark table reserved if same day
-    state.tables = state.tables.map((t) =>
-      t.id === res.tableId ? { ...t, status: 'reservee' } : t
+    if (Object.keys(profilePayload).length > 0) {
+      await supabase.from('profiles').update(profilePayload).eq('id', id);
+    }
+
+    if (updates.assignedTableIds !== undefined) {
+      await supabase.from('restaurant_tables').update({ assigned_waiter_id: null }).eq('assigned_waiter_id', id);
+      if (updates.assignedTableIds.length > 0) {
+        await supabase
+          .from('restaurant_tables')
+          .update({ assigned_waiter_id: id })
+          .in('id', updates.assignedTableIds);
+      }
+    }
+
+    await fetchAll();
+  },
+
+  async deleteWaiter(): Promise<never> {
+    throw new Error(
+      'La suppression d\'un compte (Supabase Auth) nécessite la clé service — à faire depuis le Dashboard Supabase ou une Edge Function dédiée, jamais depuis le navigateur.'
     );
-
-    saveStateAndNotify();
   },
 
-  cancelReservation(id: string) {
-    state.reservations = state.reservations.map((r) =>
-      r.id === id ? { ...r, status: 'annulée' } : r
+  // --- USERS (comptes non-serveur : admin/manager/cuisinier/caissier) ---
+  async addUser(): Promise<never> {
+    throw new Error(
+      "Impossible de créer un compte directement depuis le navigateur. Utilisez l'Edge Function create-staff-user."
     );
-    saveStateAndNotify();
   },
 
-  // --- WAITERS & USERS ---
-  addWaiter(waiter: Omit<Waiter, 'id'>) {
-    const newWaiter: Waiter = {
-      ...waiter,
-      id: `waiter-${Date.now()}`,
-    };
-    state.waiters = [...state.waiters, newWaiter];
-    saveStateAndNotify();
+  async updateUser(id: string, updates: Partial<User>) {
+    const payload: Record<string, unknown> = {};
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.phone !== undefined) payload.phone = updates.phone;
+    if (updates.avatar !== undefined) payload.avatar = updates.avatar;
+    if (updates.active !== undefined) payload.active = updates.active;
+    if (updates.role !== undefined) payload.role = updates.role; // bloqué en base sauf pour un admin (trigger SQL)
+    await supabase.from('profiles').update(payload).eq('id', id);
+    await fetchAll();
   },
 
-  updateWaiter(id: string, updates: Partial<Waiter>) {
-    state.waiters = state.waiters.map((w) => (w.id === id ? { ...w, ...updates } : w));
-    saveStateAndNotify();
+  async deleteUser(): Promise<never> {
+    throw new Error(
+      "La suppression d'un compte nécessite la clé service — à faire depuis le Dashboard Supabase ou une Edge Function dédiée."
+    );
   },
 
-  deleteWaiter(id: string) {
-    state.waiters = state.waiters.filter((w) => w.id !== id);
-    saveStateAndNotify();
-  },
+  // --- SETTINGS (admin uniquement — cf. policy settings_write_admin) ---
+  async updateSettings(updates: Partial<RestaurantSettings>) {
+    const payload: Record<string, unknown> = {};
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.logo !== undefined) payload.logo = updates.logo;
+    if (updates.address !== undefined) payload.address = updates.address;
+    if (updates.phone !== undefined) payload.phone = updates.phone;
+    if (updates.email !== undefined) payload.email = updates.email;
+    if (updates.openingHours !== undefined) payload.opening_hours = updates.openingHours;
+    if (updates.currency !== undefined) payload.currency = updates.currency;
+    if (updates.vatRate !== undefined) payload.vat_rate = updates.vatRate;
+    if (updates.serviceRate !== undefined) payload.service_rate = updates.serviceRate;
+    if (updates.primaryColor !== undefined) payload.primary_color = updates.primaryColor;
+    if (updates.bgStyle !== undefined) payload.bg_style = updates.bgStyle;
+    if (updates.cloudinaryCloudName !== undefined) payload.cloudinary_cloud_name = updates.cloudinaryCloudName;
+    if (updates.alarmSoundType !== undefined) payload.alarm_sound_type = updates.alarmSoundType;
+    if (updates.customAudioUrl !== undefined) payload.custom_audio_url = updates.customAudioUrl;
+    if (updates.enableLoopAlarm !== undefined) payload.enable_loop_alarm = updates.enableLoopAlarm;
+    if (updates.alarmVolume !== undefined) payload.alarm_volume = updates.alarmVolume;
 
-  addUser(user: Omit<User, 'id'>) {
-    const newUser: User = {
-      ...user,
-      id: `u-${Date.now()}`,
-    };
-    state.users = [...state.users, newUser];
-    saveStateAndNotify();
-  },
-
-  updateUser(id: string, updates: Partial<User>) {
-    state.users = state.users.map((u) => (u.id === id ? { ...u, ...updates } : u));
-    saveStateAndNotify();
-  },
-
-  deleteUser(id: string) {
-    state.users = state.users.filter((u) => u.id !== id);
-    saveStateAndNotify();
-  },
-
-  // --- SETTINGS ---
-  updateSettings(updates: Partial<RestaurantSettings>) {
-    state.settings = { ...state.settings, ...updates };
-    saveStateAndNotify();
+    await supabase.from('restaurant_settings').update(payload).eq('id', true);
+    await fetchAll();
   },
 
   // --- NOTIFICATIONS ---
-  addNotification(tableId: number, type: CallNotification['type'], message: string) {
-    const newNotif: CallNotification = {
-      id: `notif-${Date.now()}`,
-      tableId,
-      type,
-      message,
-      timestamp: new Date().toISOString(),
-      read: false,
+  // addNotification n'existe plus côté client : chaque fonction RPC insère
+  // elle-même sa notification (voir supabase/migrations/0002 et 0004).
+  async clearNotifications() {
+    await supabase.rpc('clear_notifications');
+    await fetchAll();
+  },
+
+  async deleteNotification(id: string) {
+    await supabase.rpc('delete_notification', { p_notification_id: id });
+    await fetchAll();
+  },
+
+  // --- CAISSE : tiroir-caisse & clôture ---
+  async openCashDrawer(reason: string = 'ouverture_manuelle'): Promise<boolean> {
+    const { error } = await supabase.rpc('open_cash_drawer', { p_reason: reason });
+    return !error;
+  },
+
+  async getCashRegisterSummary(): Promise<{ periodStart: string; cashSales: number } | null> {
+    const { data, error } = await supabase.rpc('get_cash_register_summary');
+    if (error) return null;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+    return { periodStart: row.period_start, cashSales: Number(row.cash_sales) };
+  },
+
+  async closeCashRegister(
+    declaredCash: number,
+    openingFloat: number = 0,
+    notes?: string
+  ): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('close_cash_register', {
+      p_declared_cash: declaredCash,
+      p_opening_float: openingFloat,
+      p_notes: notes || null,
+    });
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  async resetToDefaultData(): Promise<never> {
+    throw new Error(
+      'La réinitialisation complète des données doit se faire en ré-exécutant les migrations SQL depuis Supabase (plus de remise à zéro en un clic côté client, par sécurité).'
+    );
+  },
+
+  // --- SAUVEGARDE & RESTAURATION (carte + tables + paramètres) ---
+  // NB : les sauvegardes automatiques de toute la base (infrastructure) sont
+  // déjà gérées par Supabase. Ceci est un export/import pratique, côté app,
+  // de la carte/tables/paramètres — pas des commandes ou de l'historique.
+  exportBackup() {
+    return {
+      exportedAt: new Date().toISOString(),
+      categories: state.categories,
+      menu: state.menu,
+      tables: state.tables,
+      settings: state.settings,
     };
-    state.notifications = [newNotif, ...state.notifications].slice(0, 30);
   },
 
-  clearNotifications() {
-    state.notifications = [];
-    saveStateAndNotify();
-  },
+  async restoreBackup(backup: {
+    categories?: Category[];
+    menu?: MenuItem[];
+    tables?: Table[];
+    settings?: RestaurantSettings;
+  }): Promise<{ success: boolean; message?: string }> {
+    try {
+      if (backup.categories?.length) {
+        const { error } = await supabase.from('categories').upsert(
+          backup.categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, sort_order: c.order }))
+        );
+        if (error) throw error;
+      }
 
-  deleteNotification(id: string) {
-    state.notifications = state.notifications.filter((n) => n.id !== id);
-    saveStateAndNotify();
-  },
+      if (backup.menu?.length) {
+        const { error } = await supabase.from('menu_items').upsert(
+          backup.menu.map((m) => ({
+            id: m.id,
+            category_id: m.categoryId,
+            name: m.name,
+            description: m.description,
+            price: m.price,
+            images: m.images,
+            video_url: m.videoUrl,
+            prep_time_minutes: m.prepTimeMinutes,
+            is_available: m.isAvailable,
+            stock_quantity: m.stockQuantity,
+            is_promo: m.isPromo ?? false,
+            promo_price: m.promoPrice,
+            is_recommended: m.isRecommended ?? false,
+            is_spicy: m.isSpicy ?? false,
+            allergens: m.allergens,
+          }))
+        );
+        if (error) throw error;
+      }
 
-  resetToDefaultData() {
-    state = {
-      categories: INITIAL_CATEGORIES,
-      menu: INITIAL_MENU,
-      tables: INITIAL_TABLES,
-      orders: [],
-      bills: [],
-      reservations: [],
-      waiters: INITIAL_WAITERS,
-      users: INITIAL_USERS,
-      settings: INITIAL_SETTINGS,
-      notifications: [],
-      activeAlarm: null,
-    };
-    saveStateAndNotify();
+      if (backup.tables?.length) {
+        const { error } = await supabase.from('restaurant_tables').upsert(
+          backup.tables.map((t) => ({
+            id: t.id,
+            number: t.number,
+            name: t.name,
+            status: t.status,
+            seats: t.seats,
+            access_code: t.accessCode,
+            assigned_waiter_id: t.assignedWaiterId,
+          }))
+        );
+        if (error) throw error;
+      }
+
+      if (backup.settings) {
+        const s = backup.settings;
+        const { error } = await supabase
+          .from('restaurant_settings')
+          .update({
+            name: s.name,
+            logo: s.logo,
+            address: s.address,
+            phone: s.phone,
+            email: s.email,
+            opening_hours: s.openingHours,
+            currency: s.currency,
+            vat_rate: s.vatRate,
+            service_rate: s.serviceRate,
+            primary_color: s.primaryColor,
+            bg_style: s.bgStyle,
+            cloudinary_cloud_name: s.cloudinaryCloudName,
+            alarm_sound_type: s.alarmSoundType,
+            custom_audio_url: s.customAudioUrl,
+            enable_loop_alarm: s.enableLoopAlarm,
+            alarm_volume: s.alarmVolume,
+          })
+          .eq('id', true);
+        if (error) throw error;
+      }
+
+      await fetchAll();
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: (err as Error).message || 'Restauration impossible.' };
+    }
   },
 };

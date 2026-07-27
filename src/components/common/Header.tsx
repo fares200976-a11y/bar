@@ -15,11 +15,12 @@ import {
   Trash2,
   X
 } from 'lucide-react';
-import { User, RestaurantSettings, CallNotification } from '../../types';
+import { User, RestaurantSettings, CallNotification, Table } from '../../types';
 
 interface HeaderProps {
   currentView: 'client' | 'admin';
   selectedTableId: number;
+  tables: Table[];
   onSelectTable: (tableId: number) => void;
   onSwitchView: (view: 'client' | 'admin') => void;
   currentUser: User | null;
@@ -38,6 +39,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentView,
   selectedTableId,
+  tables,
   onSelectTable,
   onSwitchView,
   currentUser,
@@ -90,9 +92,9 @@ export const Header: React.FC<HeaderProps> = ({
                 }}
                 className="appearance-none bg-white dark:bg-[#1C1C16] text-[#1A1A1A] dark:text-white text-xs font-bold py-1.5 pl-3 pr-8 rounded-lg border border-[#E5E2DD] dark:border-[#33332A] focus:outline-none focus:ring-2 focus:ring-[#5A5A40] cursor-pointer shadow-2xs"
               >
-                {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
-                  <option key={num} value={num}>
-                    Table {num}
+                {tables.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
                   </option>
                 ))}
               </select>

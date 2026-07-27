@@ -1,48 +1,40 @@
 import React, { useState } from 'react';
-import { Shield, Lock, User as UserIcon, X, CheckCircle2, AlertCircle, KeyRound } from 'lucide-react';
+import { Shield, Lock, User as UserIcon, X, AlertCircle } from 'lucide-react';
 import { User } from '../../types';
+import { signInWithUsername } from '../../services/auth';
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  users: User[];
   onLoginSuccess: (user: User) => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({
-  isOpen,
-  onClose,
-  users,
-  onLoginSuccess,
-}) => {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setIsSubmitting(true);
 
-    const foundUser = users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+    const result = await signInWithUsername(username, password);
 
-    if (foundUser) {
-      onLoginSuccess(foundUser);
-      onClose();
-    } else {
-      setErrorMsg('Identifiant ou mot de passe incorrect.');
+    setIsSubmitting(false);
+
+    if (!result.success || !result.user) {
+      setErrorMsg(result.message || 'Identifiant ou mot de passe incorrect.');
+      return;
     }
-  };
 
-  const handleQuickRoleSelect = (roleUsername: string) => {
-    setUsername(roleUsername);
-    setPassword('123456');
-    const userObj = users.find((u) => u.username === roleUsername);
-    if (userObj) {
-      onLoginSuccess(userObj);
-      onClose();
-    }
+    onLoginSuccess(result.user);
+    setUsername('');
+    setPassword('');
+    onClose();
   };
 
   return (
@@ -71,7 +63,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           </div>
         )}
 
-        {/* Login Form */}
         <form onSubmit={handleLoginSubmit} className="space-y-3 text-xs">
           <div>
             <label className="font-semibold text-[#5A5A40] dark:text-[#D1CECB]">Identifiant :</label>
@@ -80,6 +71,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <input
                 type="text"
                 required
+                autoFocus
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="ex: admin, cuisine, caisse..."
@@ -104,36 +96,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
           <button
             type="submit"
-            className="w-full bg-[#5A5A40] hover:bg-[#484833] text-white py-3.5 rounded-2xl font-semibold text-xs shadow-2xs active:scale-98 transition-all mt-2"
+            disabled={isSubmitting}
+            className="w-full bg-[#5A5A40] hover:bg-[#484833] disabled:opacity-60 text-white py-3.5 rounded-2xl font-semibold text-xs shadow-2xs active:scale-98 transition-all mt-2"
           >
-            Se Connecter
+            {isSubmitting ? 'Connexion...' : 'Se Connecter'}
           </button>
         </form>
-
-        {/* Quick Demo Credentials */}
-        <div className="pt-3 border-t border-[#E5E2DD] dark:border-[#33332A] space-y-2">
-          <p className="text-[11px] font-medium text-[#9A948C] flex items-center gap-1">
-            <KeyRound className="w-3.5 h-3.5 text-[#E0B580]" /> Accès Rapide Démo par Rôle :
-          </p>
-
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            {[
-              { label: 'Administrateur', user: 'admin' },
-              { label: 'Chef Cuisinier', user: 'cuisine' },
-              { label: 'Caissier POS', user: 'caisse' },
-              { label: 'Serveur Karim', user: 'karim' },
-            ].map((r) => (
-              <button
-                key={r.user}
-                type="button"
-                onClick={() => handleQuickRoleSelect(r.user)}
-                className="p-2.5 rounded-xl font-medium border border-[#E5E2DD] dark:border-[#33332A] bg-[#F5F2ED] dark:bg-[#26261E] text-[#5A5A40] dark:text-[#E2E0D8] text-left transition-all hover:bg-[#EDEDE6]"
-              >
-                <span>{r.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

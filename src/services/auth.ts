@@ -11,6 +11,23 @@ function usernameToEmail(username: string): string {
   return `${username.trim().toLowerCase()}@${STAFF_EMAIL_DOMAIN}`;
 }
 
+// supabase.functions.invoke() met la Response HTTP brute dans `error.context`
+// (pas un objet JSON déjà parsé) — il faut donc la lire via .json() pour
+// récupérer le vrai message d'erreur renvoyé par la fonction, sinon on ne voit
+// que le message générique "Edge Function returned a non-2xx status code".
+async function extractFunctionErrorMessage(error: unknown, fallback: string): Promise<string> {
+  try {
+    const ctx = (error as { context?: Response })?.context;
+    if (ctx && typeof ctx.json === 'function') {
+      const body = await ctx.json();
+      if (body?.error) return body.error as string;
+    }
+  } catch {
+    // Réponse non-JSON ou déjà consommée : on retombe sur le message générique.
+  }
+  return (error as Error)?.message || fallback;
+}
+
 export interface AuthResult {
   success: boolean;
   message?: string;
@@ -43,32 +60,84 @@ export async function signInWithUsername(username: string, password: string): Pr
   return { success: true, user: profile };
 }
 
-// Connexion rapide serveur par PIN (scan QR "waiterPin=2001").
-//
-// ⚠️ LIMITE IMPORTANTE À CONNAÎTRE : cette fonction retrouve le PROFIL correspondant
-// au PIN, mais ne crée PAS de session Supabase Auth réelle (un PIN à 4 chiffres n'est
-// pas un mot de passe Supabase valide). Tant qu'on n'a pas branché une Edge Function
-// dédiée (qui vérifierait le PIN côté serveur puis émettrait une vraie session via
-// `supabase.auth.admin.generateLink` ou équivalent), ce mode reste une identification
-// "visuelle" côté client, PAS une authentification sécurisée par la base de données.
-// → Recommandation pour la suite : soit exiger malgré tout le mot de passe réel du
-// serveur après scan du QR, soit créer une Edge Function "login-by-pin" dédiée.
-// Je fais volontairement ce compromis explicite maintenant plutôt que de vous laisser
-// croire que c'est déjà sécurisé.
-export async function fetchProfileByPin(pinCode: string): Promise<User | null> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('pin_code', pinCode)
-    .eq('active', true)
-    .maybeSingle();
+// Connexion rapide serveur par PIN (scan QR "waiterPin=2001") — SÉCURISÉE :
+// passe par l'Edge Function login-by-pin qui vérifie le PIN côté serveur et
+// génère une vraie session Supabase, échangée ici via verifyOtp(). Ce n'est
+// plus une simple identification visuelle : auth.uid() fonctionne ensuite
+// normalement pour toutes les policies RLS et fonctions RPC.
+export async function signInWithPin(pinCode: string): Promise<AuthResult> {
+  const { data, error } = await supabase.functions.invoke('login-by-pin', {
+    body: { pinCode },
+  });
 
-  if (error || !data) return null;
-  return mapProfileRowToUser(data);
+  if (error || !data?.success) {
+    const message = error
+      ? await extractFunctionErrorMessage(error, 'Code PIN invalide.')
+      : data?.error || 'Code PIN invalide.';
+    return { success: false, message };
+  }
+
+  const { error: verifyError } = await supabase.auth.verifyOtp({
+    email: data.email,
+    token: data.tokenHash,
+    type: 'magiclink',
+  });
+
+  if (verifyError) {
+    return { success: false, message: 'Connexion impossible avec ce code PIN.' };
+  }
+
+  const profile = await fetchOwnProfile();
+  if (!profile) {
+    await supabase.auth.signOut();
+    return { success: false, message: 'Profil introuvable pour ce compte.' };
+  }
+
+  if (!profile.active) {
+    await supabase.auth.signOut();
+    return { success: false, message: 'Ce compte a été désactivé. Contactez un administrateur.' };
+  }
+
+  return { success: true, user: profile };
 }
 
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
+}
+
+export interface CreateStaffAccountInput {
+  username: string;
+  password: string;
+  name: string;
+  role: UserRole;
+  phone?: string;
+  pinCode?: string;
+}
+
+export interface CreateStaffAccountResult {
+  success: boolean;
+  message?: string;
+}
+
+// Crée un nouveau compte du personnel (admin uniquement). Passe par l'Edge
+// Function create-staff-user, la seule autorisée à utiliser la clé service
+// nécessaire pour créer un utilisateur Supabase Auth — jamais depuis le
+// navigateur directement.
+export async function createStaffAccount(input: CreateStaffAccountInput): Promise<CreateStaffAccountResult> {
+  const { data, error } = await supabase.functions.invoke('create-staff-user', {
+    body: input,
+  });
+
+  if (error) {
+    const message = await extractFunctionErrorMessage(error, 'Création du compte impossible.');
+    return { success: false, message };
+  }
+
+  if (data?.error) {
+    return { success: false, message: data.error };
+  }
+
+  return { success: true };
 }
 
 export async function fetchOwnProfile(): Promise<User | null> {
@@ -90,7 +159,6 @@ function mapProfileRowToUser(row: Record<string, unknown>): User {
     id: row.id as string,
     name: row.name as string,
     username: row.username as string,
-    password: '', // jamais renvoyé ni stocké côté client — géré entièrement par Supabase Auth
     role: row.role as UserRole,
     phone: (row.phone as string) || undefined,
     avatar: (row.avatar as string) || undefined,

@@ -337,12 +337,29 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_order public.orders%rowtype;
 begin
   if not public.is_staff(array['admin','manager','cuisinier','serveur']::user_role[]) then
     raise exception 'Non autorisé.';
   end if;
 
+  select * into v_order from public.orders where id = p_order_id;
+  if not found then
+    return;
+  end if;
+
   update public.orders set status = p_status, updated_at = now() where id = p_order_id;
+
+  -- Quand la commande passe "prête" ou "servie", tous ses articles suivent.
+  if p_status in ('prete', 'servie') then
+    update public.order_items set status = p_status where order_id = p_order_id;
+  end if;
+
+  if p_status = 'prete' then
+    insert into public.notifications (table_id, type, message)
+    values (v_order.table_id, 'kitchen_ready', format('Plat(s) PRÊT(S) pour Table %s !', v_order.table_id));
+  end if;
 end;
 $$;
 
@@ -354,12 +371,21 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_all_ready boolean;
 begin
   if not public.is_staff(array['admin','manager','cuisinier','serveur']::user_role[]) then
     raise exception 'Non autorisé.';
   end if;
 
   update public.order_items set status = p_status where id = p_item_id and order_id = p_order_id;
+
+  select bool_and(status in ('prete', 'servie', 'annulee')) into v_all_ready
+    from public.order_items where order_id = p_order_id;
+
+  if v_all_ready then
+    update public.orders set status = 'prete', updated_at = now() where id = p_order_id;
+  end if;
 end;
 $$;
 

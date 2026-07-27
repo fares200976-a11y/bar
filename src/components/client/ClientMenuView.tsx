@@ -16,13 +16,11 @@ import {
   AlertCircle,
   Tag,
   Sparkles,
-  KeyRound,
   ShieldCheck,
   QrCode
 } from 'lucide-react';
 import { Category, MenuItem, Order, Table, Waiter, RestaurantSettings } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
-import { store } from '../../services/store';
 
 interface ClientMenuViewProps {
   table: Table;
@@ -64,27 +62,11 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [callSent, setCallSent] = useState(false);
   const [billSent, setBillSent] = useState(false);
 
-  // 4-digit QR Code Verification State
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [pinSuccess, setPinSuccess] = useState(false);
-
-  const handleVerifyPinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPinError('');
-    if (!pinInput || pinInput.trim().length !== 4) {
-      setPinError('Veuillez saisir exactement les 4 chiffres du QR Code.');
-      return;
-    }
-    const result = store.verifyAndOccupyTable(table.id, pinInput.trim());
-    if (result.success) {
-      setPinSuccess(true);
-      setPinInput('');
-      setTimeout(() => setPinSuccess(false), 5000);
-    } else {
-      setPinError(result.message || 'Code à 4 chiffres incorrect pour cette table.');
-    }
-  };
+  // La vérification du code à 4 chiffres se fait désormais sur la page d'accueil
+  // (voir ClientLandingGate dans App.tsx) avant même que ce composant ne soit
+  // affiché. On ne fait ici que relire le statut de la table par sécurité
+  // (défense en profondeur) — jamais 'libre' à ce stade normalement.
+  const isTableVerified = table.status !== 'libre';
 
   // Filter menu
   const filteredMenu = menu.filter((item) => {
@@ -96,12 +78,14 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   });
 
   const handleCallWaiterClick = () => {
+    if (!isTableVerified) return;
     onCallWaiter();
     setCallSent(true);
     setTimeout(() => setCallSent(false), 4000);
   };
 
   const handleRequestBillClick = () => {
+    if (!isTableVerified) return;
     onRequestBill();
     setBillSent(true);
     setTimeout(() => setBillSent(false), 4000);
@@ -118,7 +102,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [showConfirmAdd, setShowConfirmAdd] = useState(false);
 
   const handleAddFromModal = () => {
-    if (selectedMenuItem) {
+    if (selectedMenuItem && isTableVerified) {
       setShowConfirmAdd(true);
     }
   };
@@ -167,10 +151,13 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               onClick={handleCallWaiterClick}
-              disabled={callSent}
+              disabled={callSent || !isTableVerified}
+              title={!isTableVerified ? 'Validez le code à 4 chiffres de votre table ci-dessous pour activer cette fonction.' : undefined}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-medium transition-all shadow-xs ${
                 callSent
                   ? 'bg-[#486349] text-white'
+                  : !isTableVerified
+                  ? 'bg-white/10 text-[#D1CECB]/50 cursor-not-allowed'
                   : 'bg-[#F5F2ED] text-[#5A5A40] hover:bg-white active:scale-95'
               }`}
             >
@@ -180,10 +167,13 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
 
             <button
               onClick={handleRequestBillClick}
-              disabled={billSent}
+              disabled={billSent || !isTableVerified}
+              title={!isTableVerified ? 'Validez le code à 4 chiffres de votre table ci-dessous pour activer cette fonction.' : undefined}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-medium transition-all shadow-xs ${
                 billSent
                   ? 'bg-[#486349] text-white'
+                  : !isTableVerified
+                  ? 'bg-white/10 text-[#D1CECB]/50 cursor-not-allowed'
                   : 'bg-[#1A1A1A] text-white hover:bg-[#2A2A2A] active:scale-95'
               }`}
             >
@@ -204,64 +194,26 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         </div>
       </div>
 
-      {/* 4-Digit QR Security Code Entry / Status Banner */}
+      {/* Bannière de confirmation table active */}
       <div className="mb-6 p-4 rounded-3xl bg-white dark:bg-[#1C1C16] border border-[#E5E2DD] dark:border-[#33332A] shadow-xs">
-        {table.status === 'occupee' || pinSuccess ? (
-          <div className="flex items-center justify-between gap-3 text-emerald-700 dark:text-emerald-400">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider">
-                  Table {table.number} — Occupée & Validée
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Un signal sonore (2 bips) a été transmis au serveur et à l'administrateur.
-                </p>
-              </div>
+        <div className="flex items-center justify-between gap-3 text-emerald-700 dark:text-emerald-400">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-extrabold px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800 shrink-0">
-              OCCUPÉE
-            </span>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider">
+                Table {table.number} — Occupée & Validée
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Un signal sonore (2 bips) a été transmis au serveur et à l'administrateur.
+              </p>
+            </div>
           </div>
-        ) : (
-          <form onSubmit={handleVerifyPinSubmit} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center shrink-0">
-                <KeyRound className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <span>Validation du Code QR (4 Chiffres)</span>
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Saisissez le code affiché sur le QR Code de votre table pour la déclarer occupée.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <input
-                type="text"
-                maxLength={4}
-                placeholder="Ex: 4821"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
-                className="w-28 text-center text-base font-bold font-mono tracking-widest bg-slate-50 dark:bg-[#26261E] text-slate-900 dark:text-white py-2.5 px-3 rounded-2xl border border-slate-200 dark:border-[#33332A] focus:outline-none focus:ring-2 focus:ring-[#5A5A40]"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2.5 bg-[#5A5A40] hover:bg-[#484833] text-white text-xs font-bold rounded-2xl shadow-xs transition-all whitespace-nowrap"
-              >
-                Valider & Occuper
-              </button>
-            </div>
-            {pinError && (
-              <p className="text-xs font-semibold text-rose-500 w-full mt-1 sm:mt-0">{pinError}</p>
-            )}
-          </form>
-        )}
+          <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-extrabold px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800 shrink-0">
+            OCCUPÉE
+          </span>
+        </div>
       </div>
 
       {/* Search & Filter Bar */}
@@ -593,20 +545,32 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
 
                 <button
                   onClick={handleAddFromModal}
-                  className="flex-1 ml-4 bg-[#5A5A40] hover:bg-[#484833] text-white py-3.5 px-6 rounded-2xl font-medium text-xs flex items-center justify-center gap-2 shadow-2xs active:scale-95 transition-all"
+                  disabled={!isTableVerified}
+                  title={!isTableVerified ? 'Validez le code à 4 chiffres de votre table avant de commander.' : undefined}
+                  className={`flex-1 ml-4 py-3.5 px-6 rounded-2xl font-medium text-xs flex items-center justify-center gap-2 shadow-2xs transition-all ${
+                    isTableVerified
+                      ? 'bg-[#5A5A40] hover:bg-[#484833] text-white active:scale-95'
+                      : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                  }`}
                 >
                   <Check className="w-4 h-4" />
                   <span>
-                    Ajouter au panier •{' '}
-                    {formatCurrency(
-                      (selectedMenuItem.isPromo && selectedMenuItem.promoPrice
-                        ? selectedMenuItem.promoPrice
-                        : selectedMenuItem.price) * itemQuantity,
-                      settings.currency
-                    )}
+                    {isTableVerified
+                      ? `Ajouter au panier • ${formatCurrency(
+                          (selectedMenuItem.isPromo && selectedMenuItem.promoPrice
+                            ? selectedMenuItem.promoPrice
+                            : selectedMenuItem.price) * itemQuantity,
+                          settings.currency
+                        )}`
+                      : 'Validez le code de la table pour commander'}
                   </span>
                 </button>
               </div>
+              {!isTableVerified && (
+                <p className="text-[11px] text-[#D95D39] font-medium text-center -mt-1">
+                  Saisissez le code à 4 chiffres affiché sur votre table (bandeau ci-dessus) pour pouvoir commander.
+                </p>
+              )}
             </div>
           </div>
         </div>

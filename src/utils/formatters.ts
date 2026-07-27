@@ -60,6 +60,8 @@ export function formatTimeOnly(isoString: string): string {
 
 export function getOrderStatusLabel(status: OrderStatus): string {
   switch (status) {
+    case 'en_attente_validation':
+      return 'À valider (Serveur)';
     case 'nouvelle':
       return 'Nouvelle';
     case 'en_preparation':
@@ -79,6 +81,8 @@ export function getOrderStatusLabel(status: OrderStatus): string {
 
 export function getOrderStatusBadgeClass(status: OrderStatus): string {
   switch (status) {
+    case 'en_attente_validation':
+      return 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/40 dark:text-orange-300 animate-pulse';
     case 'nouvelle':
       return 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300';
     case 'en_preparation':
