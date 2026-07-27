@@ -417,7 +417,8 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 <p className="text-xs text-slate-400 italic text-center py-2">Aucune commande active pour cette table.</p>
               )}
 
-              {/* Move & Merge Buttons */}
+              {/* Move & Merge Buttons — réservé admin/manager/caissier, pas le serveur */}
+              {currentUser?.role !== 'serveur' && (
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <button
                   onClick={() => {
@@ -441,9 +442,11 @@ export const TablesView: React.FC<TablesViewProps> = ({
                   <span>Fusionner Addition</span>
                 </button>
               </div>
+              )}
 
-              {/* Direct Cashier button */}
-              {getTableActiveOrder(selectedTable.id) &&
+              {/* Direct Cashier button — réservé admin/manager/caissier */}
+              {currentUser?.role !== 'serveur' &&
+                getTableActiveOrder(selectedTable.id) &&
                 getTableActiveOrder(selectedTable.id)?.status !== 'en_attente_validation' && (
                 <button
                   onClick={() => {
