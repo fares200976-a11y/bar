@@ -56,6 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const unreadNotifs = notifications.filter((n) => !n.read);
+  const isClientView = currentView === 'client';
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#1C1C16]/95 backdrop-blur-md border-b border-[#E5E2DD] dark:border-[#33332A] transition-colors">
@@ -76,6 +77,39 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
+          {/* Vue client : en-tête minimal — jamais le sélecteur de table (ça
+              révèlerait qu'il y a d'autres tables), jamais le raccourci admin. */}
+          {isClientView ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onToggleDarkMode}
+                className="p-2 text-[#5A5A40] dark:text-[#D1CECB] hover:bg-[#F5F2ED] dark:hover:bg-[#26261E] rounded-lg transition-colors"
+                title="Changer le thème"
+              >
+                {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+              </button>
+
+              {currentUser ? (
+                <button
+                  onClick={() => onSwitchView('admin')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-[#9A948C] hover:text-[#5A5A40] transition-colors"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Espace Personnel</span>
+                </button>
+              ) : (
+                <button
+                  onClick={onOpenLogin}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-[#9A948C] hover:text-[#5A5A40] transition-colors"
+                  title="Réservé au personnel"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Personnel</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
           {/* Center Table Switcher Simulator for testing QR Scan */}
           <div className="flex items-center gap-2 bg-[#F5F2ED] dark:bg-[#26261E] p-1.5 rounded-xl border border-[#E5E2DD] dark:border-[#33332A]">
             <div className="flex items-center gap-1.5 px-2 text-xs font-medium text-[#5A5A40] dark:text-[#D1CECB]">
@@ -256,6 +290,8 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
     </header>
