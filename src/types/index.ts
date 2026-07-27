@@ -21,6 +21,7 @@ export interface Table {
   accessCode?: string; // 4-digit PIN code dynamically generated for QR scan
   assignedWaiterId?: string;
   activeOrderId?: string;
+  occupiedSince?: string; // ISO — maintenu automatiquement côté base (trigger)
 }
 
 export interface Category {

@@ -8,8 +8,12 @@ interface KitchenViewProps {
   orders: Order[];
   categories?: Category[];
   settings: RestaurantSettings;
-  onUpdateOrderStatus: (orderId: string, status: OrderStatus) => void;
-  onUpdateOrderItemStatus: (orderId: string, itemId: string, status: 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'annulee') => void;
+  onUpdateOrderStatus: (orderId: string, status: OrderStatus) => Promise<{ success: boolean; message?: string }>;
+  onUpdateOrderItemStatus: (
+    orderId: string,
+    itemId: string,
+    status: 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'annulee'
+  ) => Promise<{ success: boolean; message?: string }>;
 }
 
 export const KitchenView: React.FC<KitchenViewProps> = ({
@@ -20,6 +24,15 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
   onUpdateOrderItemStatus,
 }) => {
   const [filterType, setFilterType] = useState<'cuisine' | 'bar' | 'tous'>('cuisine');
+
+  // Affiche clairement l'erreur si la mise à jour échoue (avant, l'échec était
+  // invisible : le bouton avait l'air de "ne rien faire").
+  const handleUpdateStatus = async (orderId: string, status: OrderStatus) => {
+    const result = await onUpdateOrderStatus(orderId, status);
+    if (!result.success) {
+      alert(result.message || 'Impossible de mettre à jour cette commande. Réessayez.');
+    }
+  };
 
   // Filter items in an order depending on selected filter (cuisine = food only, bar = drinks only, tous = all)
   const filterOrderItems = (ord: Order) => {
@@ -157,7 +170,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
 
                 {/* Action button: Pass to Preparation */}
                 <button
-                  onClick={() => onUpdateOrderStatus(ord.id, 'en_preparation')}
+                  onClick={() => handleUpdateStatus(ord.id, 'en_preparation')}
                   className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg transition-colors cursor-pointer border border-amber-400"
                 >
                   <Flame className="w-5 h-5 text-slate-950" />
@@ -230,7 +243,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
 
                 {/* Action: Mark as Ready */}
                 <button
-                  onClick={() => onUpdateOrderStatus(ord.id, 'prete')}
+                  onClick={() => handleUpdateStatus(ord.id, 'prete')}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg transition-colors cursor-pointer"
                 >
                   <CheckCircle2 className="w-5 h-5" />
@@ -287,7 +300,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 </div>
 
                 <button
-                  onClick={() => onUpdateOrderStatus(ord.id, 'servie')}
+                  onClick={() => handleUpdateStatus(ord.id, 'servie')}
                   className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg transition-colors cursor-pointer"
                 >
                   <Utensils className="w-5 h-5" />

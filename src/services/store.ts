@@ -254,6 +254,7 @@ function mapTable(row: any): Table {
     accessCode: row.access_code ?? undefined,
     assignedWaiterId: row.assigned_waiter_id ?? undefined,
     activeOrderId: row.active_order_id ?? undefined,
+    occupiedSince: row.occupied_since ?? undefined,
   };
 }
 
@@ -728,14 +729,32 @@ export const store = {
     return !error && Boolean(data);
   },
 
-  async updateOrderStatus(orderId: string, status: OrderStatus) {
-    await supabase.rpc('update_order_status', { p_order_id: orderId, p_status: status });
+  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('update_order_status', { p_order_id: orderId, p_status: status });
     await fetchAll();
+    if (error) {
+      console.error('updateOrderStatus error:', error);
+      return { success: false, message: error.message };
+    }
+    return { success: true };
   },
 
-  async updateOrderItemStatus(orderId: string, itemId: string, itemStatus: OrderItem['status']) {
-    await supabase.rpc('update_order_item_status', { p_order_id: orderId, p_item_id: itemId, p_status: itemStatus });
+  async updateOrderItemStatus(
+    orderId: string,
+    itemId: string,
+    itemStatus: OrderItem['status']
+  ): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('update_order_item_status', {
+      p_order_id: orderId,
+      p_item_id: itemId,
+      p_status: itemStatus,
+    });
     await fetchAll();
+    if (error) {
+      console.error('updateOrderItemStatus error:', error);
+      return { success: false, message: error.message };
+    }
+    return { success: true };
   },
 
   async callWaiter(tableId: number) {

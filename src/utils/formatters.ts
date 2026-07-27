@@ -150,3 +150,17 @@ export function calculateOrderTotals(order: Order, vatRate = 0, serviceRate = 0,
     grandTotal,
   };
 }
+
+// Affiche depuis combien de temps une table est occupée (ex: "12 min", "1h 05").
+export function formatElapsedSince(iso: string): string {
+  const elapsedMs = Date.now() - new Date(iso).getTime();
+  const totalMinutes = Math.max(0, Math.floor(elapsedMs / 60000));
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes} min`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes.toString().padStart(2, '0')}`;
+}

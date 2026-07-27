@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Grid,
   Users,
@@ -12,10 +12,11 @@ import {
   AlertCircle,
   KeyRound,
   RefreshCw,
-  QrCode
+  QrCode,
+  Clock
 } from 'lucide-react';
 import { Table, Order, Waiter, RestaurantSettings, TableStatus, User } from '../../types';
-import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel } from '../../utils/formatters';
+import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel, formatElapsedSince } from '../../utils/formatters';
 import { store } from '../../services/store';
 
 interface TablesViewProps {
@@ -49,6 +50,14 @@ export const TablesView: React.FC<TablesViewProps> = ({
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [targetTableId, setTargetTableId] = useState<number>(2);
+
+  // Force un re-rendu toutes les 30s pour que le compteur "occupée depuis..."
+  // avance tout seul, sans attendre une vraie mise à jour de données.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => forceTick((t) => t + 1), 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Helper to calculate total consumption for table
   const getTableActiveOrder = (tableId: number) => {
@@ -184,7 +193,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 )}
               </div>
 
-              {/* Waiter assigned & Seats */}
+              {/* Waiter assigned & Seats & Temps d'occupation */}
               <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 pt-2.5 border-t border-slate-200 dark:border-slate-800">
                 <span className="flex items-center gap-1 font-bold">
                   <Users className="w-3.5 h-3.5 text-rose-500" /> {table.seats} places
@@ -193,6 +202,13 @@ export const TablesView: React.FC<TablesViewProps> = ({
                   {assignedWaiter ? assignedWaiter.name.split(' ')[0] : 'Non assigné'}
                 </span>
               </div>
+
+              {table.occupiedSince && table.status !== 'libre' && (
+                <div className="flex items-center gap-1.5 text-[11px] font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 rounded-xl px-2.5 py-1.5 mt-2">
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                  <span>Table {table.number} occupée depuis {formatElapsedSince(table.occupiedSince)}</span>
+                </div>
+              )}
 
               {/* Quick self-assign button for a logged-in waiter */}
               {currentUser?.role === 'serveur' && table.assignedWaiterId !== currentUser.id && (
