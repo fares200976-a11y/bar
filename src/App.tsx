@@ -522,6 +522,7 @@ export default function App() {
               onMoveOrder={(fromId, toId) => store.moveOrderBetweenTables(fromId, toId)}
               onMergeTables={(srcId, tgtId) => store.mergeTables(srcId, tgtId)}
               onConfirmOrder={(oId) => store.confirmOrder(oId)}
+              onMarkServed={(oId) => store.updateOrderStatus(oId, 'servie')}
               onOpenCashierForTable={(tId) => {
                 setSelectedTableId(tId);
                 setAdminTab('cashier');

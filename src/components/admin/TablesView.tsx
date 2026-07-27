@@ -13,7 +13,8 @@ import {
   KeyRound,
   RefreshCw,
   QrCode,
-  Clock
+  Clock,
+  Bell
 } from 'lucide-react';
 import { Table, Order, Waiter, RestaurantSettings, TableStatus, User } from '../../types';
 import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel, formatElapsedSince } from '../../utils/formatters';
@@ -30,6 +31,7 @@ interface TablesViewProps {
   onMoveOrder: (fromTableId: number, toTableId: number) => Promise<boolean>;
   onMergeTables: (sourceTableId: number, targetTableId: number) => Promise<boolean>;
   onConfirmOrder: (orderId: string) => Promise<boolean>;
+  onMarkServed: (orderId: string) => Promise<{ success: boolean; message?: string }>;
   onOpenCashierForTable: (tableId: number) => void;
 }
 
@@ -44,12 +46,20 @@ export const TablesView: React.FC<TablesViewProps> = ({
   onMoveOrder,
   onMergeTables,
   onConfirmOrder,
+  onMarkServed,
   onOpenCashierForTable,
 }) => {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [targetTableId, setTargetTableId] = useState<number>(2);
+
+  const handleMarkServed = async (orderId: string) => {
+    const result = await onMarkServed(orderId);
+    if (!result.success) {
+      alert(result.message || 'Impossible de marquer cette commande comme servie.');
+    }
+  };
 
   // Force un re-rendu toutes les 30s pour que le compteur "occupée depuis..."
   // avance tout seul, sans attendre une vraie mise à jour de données.
@@ -118,6 +128,41 @@ export const TablesView: React.FC<TablesViewProps> = ({
           </button>
         )}
       </div>
+
+      {/* Panneau "Prêt à Servir" — très visible, montre directement le numéro
+          de table et les plats, pour que le serveur n'ait pas à chercher. */}
+      {orders.filter((o) => o.status === 'prete').length > 0 && (
+        <div className="bg-emerald-600 rounded-3xl p-5 shadow-xl space-y-3">
+          <h3 className="font-black text-white text-lg flex items-center gap-2">
+            <Bell className="w-5 h-5 animate-bounce" />
+            <span>Prêt à Servir ({orders.filter((o) => o.status === 'prete').length})</span>
+          </h3>
+          <div className="space-y-2">
+            {orders
+              .filter((o) => o.status === 'prete')
+              .map((ord) => (
+                <div
+                  key={ord.id}
+                  className="bg-white dark:bg-slate-900 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                  <div>
+                    <p className="font-black text-xl text-slate-900 dark:text-white">Table {ord.tableId}</p>
+                    <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
+                      {ord.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleMarkServed(ord.id)}
+                    className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-sm shadow-md transition-colors cursor-pointer shrink-0"
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    <span>Marquer Servie</span>
+                  </button>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Tables Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
