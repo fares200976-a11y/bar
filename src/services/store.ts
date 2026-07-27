@@ -241,6 +241,7 @@ function mapMenuItem(row: any): MenuItem {
     isRecommended: row.is_recommended ?? undefined,
     isSpicy: row.is_spicy ?? undefined,
     allergens: row.allergens || [],
+    dietaryLabels: row.dietary_labels || [],
   };
 }
 
@@ -578,6 +579,7 @@ export const store = {
       is_recommended: item.isRecommended ?? false,
       is_spicy: item.isSpicy ?? false,
       allergens: item.allergens,
+      dietary_labels: item.dietaryLabels || [],
     });
     await fetchAll();
   },
@@ -598,6 +600,7 @@ export const store = {
     if (updates.isRecommended !== undefined) payload.is_recommended = updates.isRecommended;
     if (updates.isSpicy !== undefined) payload.is_spicy = updates.isSpicy;
     if (updates.allergens !== undefined) payload.allergens = updates.allergens;
+    if (updates.dietaryLabels !== undefined) payload.dietary_labels = updates.dietaryLabels;
 
     await supabase.from('menu_items').update(payload).eq('id', id);
     await fetchAll();
@@ -1002,6 +1005,7 @@ export const store = {
             is_recommended: m.isRecommended ?? false,
             is_spicy: m.isSpicy ?? false,
             allergens: m.allergens,
+            dietary_labels: m.dietaryLabels || [],
           }))
         );
         if (error) throw error;

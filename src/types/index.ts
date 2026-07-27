@@ -47,6 +47,7 @@ export interface MenuItem {
   isRecommended?: boolean;
   isSpicy?: boolean;
   allergens: string[]; // e.g., ['Gluten', 'Lait', 'Arachides']
+  dietaryLabels?: string[]; // e.g., ['Végétarien', 'Vegan', 'Sans Gluten', 'Fait Maison']
 }
 
 export interface OrderItemOption {

@@ -17,7 +17,8 @@ import {
   Tag,
   Sparkles,
   ShieldCheck,
-  QrCode
+  QrCode,
+  Filter
 } from 'lucide-react';
 import { Category, MenuItem, Order, Table, Waiter, RestaurantSettings } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
@@ -61,6 +62,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [callSent, setCallSent] = useState(false);
   const [billSent, setBillSent] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [activeDietaryLabels, setActiveDietaryLabels] = useState<string[]>([]);
+  const [excludedAllergens, setExcludedAllergens] = useState<string[]>([]);
 
   // La vérification du code à 4 chiffres se fait désormais sur la page d'accueil
   // (voir ClientLandingGate dans App.tsx) avant même que ce composant ne soit
@@ -68,14 +72,28 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   // (défense en profondeur) — jamais 'libre' à ce stade normalement.
   const isTableVerified = table.status !== 'libre';
 
+  // Labels et allergènes réellement présents sur la carte (pas de liste figée
+  // qui afficherait des filtres vides si le restaurant ne les utilise pas).
+  const availableDietaryLabels = Array.from(
+    new Set(menu.flatMap((item) => item.dietaryLabels || []))
+  ).sort();
+  const availableAllergens = Array.from(new Set(menu.flatMap((item) => item.allergens))).sort();
+
   // Filter menu
   const filteredMenu = menu.filter((item) => {
     const matchesCategory = selectedCategoryId === 'all' || item.categoryId === selectedCategoryId;
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    const matchesDietary =
+      activeDietaryLabels.length === 0 ||
+      activeDietaryLabels.every((label) => (item.dietaryLabels || []).includes(label));
+    const matchesAllergens =
+      excludedAllergens.length === 0 || !excludedAllergens.some((alg) => item.allergens.includes(alg));
+    return matchesCategory && matchesSearch && matchesDietary && matchesAllergens;
   });
+
+  const activeFilterCount = activeDietaryLabels.length + excludedAllergens.length;
 
   const handleCallWaiterClick = () => {
     if (!isTableVerified) return;
@@ -217,7 +235,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       </div>
 
       {/* Search & Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3 mb-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-[#9A948C] absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
@@ -236,7 +254,93 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             </button>
           )}
         </div>
+
+        {(availableDietaryLabels.length > 0 || availableAllergens.length > 0) && (
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-semibold border shadow-2xs transition-all shrink-0 ${
+              activeFilterCount > 0
+                ? 'bg-[#5A5A40] text-white border-[#5A5A40]'
+                : 'bg-white dark:bg-[#1C1C16] text-[#5A5A40] dark:text-[#D1CECB] border-[#E5E2DD] dark:border-[#33332A]'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+            <span>Filtres{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}</span>
+          </button>
+        )}
       </div>
+
+      {showFilters && (availableDietaryLabels.length > 0 || availableAllergens.length > 0) && (
+        <div className="bg-white dark:bg-[#1C1C16] border border-[#E5E2DD] dark:border-[#33332A] rounded-2xl p-4 mb-6 space-y-4">
+          {availableDietaryLabels.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#5A5A40] dark:text-[#D1CECB] mb-2">Régimes :</p>
+              <div className="flex flex-wrap gap-2">
+                {availableDietaryLabels.map((label) => {
+                  const isActive = activeDietaryLabels.includes(label);
+                  return (
+                    <button
+                      key={label}
+                      onClick={() =>
+                        setActiveDietaryLabels(
+                          isActive ? activeDietaryLabels.filter((l) => l !== label) : [...activeDietaryLabels, label]
+                        )
+                      }
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        isActive
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-[#F5F2ED] dark:bg-[#26261E] border-[#E5E2DD] dark:border-[#33332A] text-[#5A5A40] dark:text-[#D1CECB]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {availableAllergens.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#D95D39] mb-2">Exclure les allergènes :</p>
+              <div className="flex flex-wrap gap-2">
+                {availableAllergens.map((alg) => {
+                  const isExcluded = excludedAllergens.includes(alg);
+                  return (
+                    <button
+                      key={alg}
+                      onClick={() =>
+                        setExcludedAllergens(
+                          isExcluded ? excludedAllergens.filter((a) => a !== alg) : [...excludedAllergens, alg]
+                        )
+                      }
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        isExcluded
+                          ? 'bg-[#D95D39] text-white border-[#D95D39]'
+                          : 'bg-[#F5F2ED] dark:bg-[#26261E] border-[#E5E2DD] dark:border-[#33332A] text-[#5A5A40] dark:text-[#D1CECB]'
+                      }`}
+                    >
+                      {alg}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => {
+                setActiveDietaryLabels([]);
+                setExcludedAllergens([]);
+              }}
+              className="text-xs font-bold text-[#9A948C] hover:text-[#5A5A40] underline"
+            >
+              Réinitialiser les filtres
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Category Horizontal Slider */}
       <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
@@ -343,6 +447,20 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                     <p className="text-xs text-[#9A948C] dark:text-[#A8A49C] mt-1.5 line-clamp-2 leading-relaxed">
                       {item.description}
                     </p>
+
+                    {/* Dietary labels badges */}
+                    {(item.dietaryLabels || []).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2.5">
+                        {(item.dietaryLabels || []).map((label) => (
+                          <span
+                            key={label}
+                            className="text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-900/50"
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Allergens badges */}
                     {item.allergens.length > 0 && (

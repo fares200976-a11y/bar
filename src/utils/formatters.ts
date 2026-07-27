@@ -151,6 +151,9 @@ export function calculateOrderTotals(order: Order, vatRate = 0, serviceRate = 0,
   };
 }
 
+// Labels diététiques disponibles pour un plat (source unique, réutilisée aussi côté client).
+export const DIETARY_LABEL_OPTIONS = ['Végétarien', 'Vegan', 'Sans Gluten', 'Halal', 'Fait Maison', 'Bio'];
+
 // Affiche depuis combien de temps une table est occupée (ex: "12 min", "1h 05").
 export function formatElapsedSince(iso: string): string {
   const elapsedMs = Date.now() - new Date(iso).getTime();

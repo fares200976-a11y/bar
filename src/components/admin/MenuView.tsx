@@ -17,7 +17,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { Category, MenuItem, RestaurantSettings } from '../../types';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, DIETARY_LABEL_OPTIONS } from '../../utils/formatters';
 
 interface MenuViewProps {
   categories: Category[];
@@ -65,6 +65,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [formIsRecommended, setFormIsRecommended] = useState(false);
   const [formIsSpicy, setFormIsSpicy] = useState(false);
   const [formAllergens, setFormAllergens] = useState<string>('');
+  const [formDietaryLabels, setFormDietaryLabels] = useState<string[]>([]);
 
   const openAddItemModal = () => {
     setEditingItemId(null);
@@ -82,6 +83,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsRecommended(false);
     setFormIsSpicy(false);
     setFormAllergens('Gluten, Lait');
+    setFormDietaryLabels([]);
     setShowItemModal(true);
   };
 
@@ -101,6 +103,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsRecommended(Boolean(item.isRecommended));
     setFormIsSpicy(Boolean(item.isSpicy));
     setFormAllergens(item.allergens.join(', '));
+    setFormDietaryLabels(item.dietaryLabels || []);
     setShowItemModal(true);
   };
 
@@ -123,6 +126,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
         .split(',')
         .map((a) => a.trim())
         .filter(Boolean),
+      dietaryLabels: formDietaryLabels,
     };
 
     if (editingItemId) {
@@ -421,6 +425,35 @@ export const MenuView: React.FC<MenuViewProps> = ({
                   onChange={(e) => setFormAllergens(e.target.value)}
                   className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
                 />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="font-bold text-slate-700 dark:text-slate-300">Labels (régimes) :</label>
+                <div className="flex flex-wrap gap-2 mt-1.5">
+                  {DIETARY_LABEL_OPTIONS.map((label) => {
+                    const isSelected = formDietaryLabels.includes(label);
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() =>
+                          setFormDietaryLabels(
+                            isSelected
+                              ? formDietaryLabels.filter((l) => l !== label)
+                              : [...formDietaryLabels, label]
+                          )
+                        }
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Checkbox Options */}
