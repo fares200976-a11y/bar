@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Clock, CheckCircle2, Receipt, Bell } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Clock, CheckCircle2, Receipt, Bell, Star } from 'lucide-react';
 import { Order, RestaurantSettings } from '../../types';
 import { formatCurrency, formatTimeOnly, getOrderStatusLabel } from '../../utils/formatters';
 
@@ -10,6 +10,7 @@ interface OrderStatusModalProps {
   settings: RestaurantSettings;
   onCallWaiter: () => void;
   onRequestBill: () => void;
+  onSubmitReview: (rating: number, comment?: string) => Promise<{ success: boolean; message?: string }>;
 }
 
 export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({
@@ -19,8 +20,25 @@ export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({
   settings,
   onCallWaiter,
   onRequestBill,
+  onSubmitReview,
 }) => {
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
   if (!isOpen || !order) return null;
+
+  const handleSubmitReview = async () => {
+    if (reviewRating === 0) return;
+    setIsSubmittingReview(true);
+    const result = await onSubmitReview(reviewRating, reviewComment || undefined);
+    setIsSubmittingReview(false);
+    if (result.success) {
+      setReviewSubmitted(true);
+    }
+  };
+
 
   const total = order.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
 
@@ -124,6 +142,46 @@ export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({
               <span className="text-rose-600 dark:text-rose-400">{formatCurrency(total, settings.currency)}</span>
             </div>
           </div>
+
+          {/* Formulaire de satisfaction — uniquement une fois la commande servie */}
+          {order.status === 'servie' && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 p-4 rounded-2xl border border-amber-200 dark:border-amber-900/50 space-y-3">
+              {reviewSubmitted ? (
+                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 text-center py-2">
+                  Merci pour votre avis ! 🙏
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white">Votre avis nous intéresse :</p>
+                  <div className="flex items-center justify-center gap-1.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button key={star} onClick={() => setReviewRating(star)} type="button">
+                        <Star
+                          className={`w-7 h-7 transition-colors ${
+                            star <= reviewRating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    placeholder="Un commentaire (facultatif)..."
+                    className="w-full bg-white dark:bg-slate-900 text-xs p-2.5 rounded-xl border border-amber-200 dark:border-amber-900/50"
+                  />
+                  <button
+                    onClick={handleSubmitReview}
+                    disabled={reviewRating === 0 || isSubmittingReview}
+                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs"
+                  >
+                    {isSubmittingReview ? 'Envoi...' : 'Envoyer mon avis'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Action Call / Bill Buttons */}
           <div className="grid grid-cols-2 gap-3 pt-2">

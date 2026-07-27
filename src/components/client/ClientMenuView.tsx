@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search,
   Flame,
@@ -71,6 +71,38 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   // affiché. On ne fait ici que relire le statut de la table par sécurité
   // (défense en profondeur) — jamais 'libre' à ce stade normalement.
   const isTableVerified = table.status !== 'libre';
+  const isPickup = table.id === 999;
+  const [lang, setLang] = useState<'fr' | 'en'>('fr');
+
+  const t = (item: MenuItem, field: 'name' | 'description') => {
+    const translated = item.translations?.[lang]?.[field];
+    return translated && translated.trim().length > 0 ? translated : item[field];
+  };
+
+  const [weather, setWeather] = useState<{ temp: number; code: number } | null>(null);
+  useEffect(() => {
+    if (settings.latitude == null || settings.longitude == null) return;
+    fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${settings.latitude}&longitude=${settings.longitude}&current=temperature_2m,weather_code`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.current) {
+          setWeather({ temp: Math.round(data.current.temperature_2m), code: data.current.weather_code });
+        }
+      })
+      .catch(() => {});
+  }, [settings.latitude, settings.longitude]);
+
+  const weatherEmoji = (code: number) => {
+    if (code === 0) return '☀️';
+    if (code <= 3) return '⛅';
+    if (code <= 48) return '🌫️';
+    if (code <= 67) return '🌧️';
+    if (code <= 77) return '❄️';
+    if (code <= 82) return '🌦️';
+    return '⛈️';
+  };
 
   // Labels et allergènes réellement présents sur la carte (pas de liste figée
   // qui afficherait des filtres vides si le restaurant ne les utilise pas).
@@ -142,16 +174,18 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-[11px] font-medium tracking-wide uppercase mb-2 text-[#E2E0D8]">
               <Sparkles className="w-3.5 h-3.5 text-[#E0B580]" />
-              <span>Commande Directe • Table {table.number}</span>
+              <span>{isPickup ? 'Click & Collect' : `Commande Directe • Table ${table.number}`}</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-serif font-normal tracking-wide">
-              Bienvenue à la Table {table.number}
+              {isPickup ? 'Commande à Emporter' : `Bienvenue à la Table ${table.number}`}
             </h2>
             <p className="text-[#D1CECB] text-xs sm:text-sm mt-1 max-w-lg font-light">
-              Découvrez notre carte gastronomique. Vos plats et rafraîchissements seront préparés à la commande.
+              {isPickup
+                ? 'Composez votre commande, elle sera prête à récupérer sur place.'
+                : 'Découvrez notre carte gastronomique. Vos plats et rafraîchissements seront préparés à la commande.'}
             </p>
 
-            {waiter && (
+            {waiter && !isPickup && (
               <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/10">
                 <img
                   src={waiter.photo}
@@ -167,6 +201,29 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
 
           {/* Table Action Buttons */}
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {weather && (
+              <div className="flex items-center gap-1.5 bg-white/10 rounded-xl px-3 py-1.5 text-xs font-bold text-white">
+                <span>{weatherEmoji(weather.code)}</span>
+                <span>{weather.temp}°C</span>
+              </div>
+            )}
+
+            <div className="flex items-center bg-white/10 rounded-xl p-1">
+              {(['fr', 'en'] as const).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setLang(l)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    lang === l ? 'bg-white text-[#5A5A40]' : 'text-[#D1CECB] hover:text-white'
+                  }`}
+                >
+                  {l.toUpperCase()}
+                </button>
+              ))}
+            </div>
+
+            {!isPickup && (
+              <>
             <button
               onClick={handleCallWaiterClick}
               disabled={callSent || !isTableVerified}
@@ -198,6 +255,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
               <Receipt className="w-4 h-4" />
               <span>{billSent ? 'Demande envoyée !' : "Demander l'addition"}</span>
             </button>
+              </>
+            )}
 
             {activeOrder && activeOrder.status !== 'terminee' && (
               <button
@@ -440,12 +499,12 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                   <div className="p-5">
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="font-serif font-semibold text-[#1A1A1A] dark:text-white text-lg group-hover:text-[#5A5A40] transition-colors">
-                        {item.name}
+                        {t(item, 'name')}
                       </h3>
                     </div>
 
                     <p className="text-xs text-[#9A948C] dark:text-[#A8A49C] mt-1.5 line-clamp-2 leading-relaxed">
-                      {item.description}
+                      {t(item, 'description')}
                     </p>
 
                     {/* Dietary labels badges */}
@@ -582,7 +641,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             <div className="p-6 space-y-4">
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-2xl font-serif font-semibold text-[#5A5A40] dark:text-[#E2E0D8]">{selectedMenuItem.name}</h3>
+                  <h3 className="text-2xl font-serif font-semibold text-[#5A5A40] dark:text-[#E2E0D8]">{t(selectedMenuItem, 'name')}</h3>
                   <span className="text-xl font-serif font-bold text-[#5A5A40] dark:text-white">
                     {formatCurrency(
                       selectedMenuItem.isPromo && selectedMenuItem.promoPrice
@@ -593,7 +652,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-[#9A948C] dark:text-[#A8A49C] mt-2 leading-relaxed">
-                  {selectedMenuItem.description}
+                  {t(selectedMenuItem, 'description')}
                 </p>
               </div>
 

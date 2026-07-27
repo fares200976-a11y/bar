@@ -48,6 +48,7 @@ export interface MenuItem {
   isSpicy?: boolean;
   allergens: string[]; // e.g., ['Gluten', 'Lait', 'Arachides']
   dietaryLabels?: string[]; // e.g., ['Végétarien', 'Vegan', 'Sans Gluten', 'Fait Maison']
+  translations?: Record<string, { name?: string; description?: string }>; // ex: { en: { name, description } }
 }
 
 export interface OrderItemOption {
@@ -82,6 +83,16 @@ export interface Order {
   billRequestedAt?: string;
   confirmedByWaiterId?: string; // serveur qui a validé la commande vers la cuisine
   confirmedAt?: string;
+  orderType?: 'sur_place' | 'emporter';
+}
+
+export interface SatisfactionReview {
+  id: string;
+  tableId?: number;
+  orderId?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
 }
 
 export type PaymentMethod = 'espèces' | 'carte' | 'mobile' | 'partagé';
@@ -153,6 +164,8 @@ export interface RestaurantSettings {
   customAudioUrl?: string;
   enableLoopAlarm?: boolean;
   alarmVolume?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface CashRegisterClosing {

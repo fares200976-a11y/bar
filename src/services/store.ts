@@ -242,6 +242,7 @@ function mapMenuItem(row: any): MenuItem {
     isSpicy: row.is_spicy ?? undefined,
     allergens: row.allergens || [],
     dietaryLabels: row.dietary_labels || [],
+    translations: row.translations || {},
   };
 }
 
@@ -287,6 +288,7 @@ function mapOrder(row: any, items: any[]): Order {
     billRequestedAt: row.bill_requested_at ?? undefined,
     confirmedByWaiterId: row.confirmed_by_waiter_id ?? undefined,
     confirmedAt: row.confirmed_at ?? undefined,
+    orderType: row.order_type ?? 'sur_place',
   };
 }
 
@@ -371,6 +373,8 @@ function mapSettings(row: any): RestaurantSettings {
     customAudioUrl: row.custom_audio_url ?? undefined,
     enableLoopAlarm: row.enable_loop_alarm,
     alarmVolume: row.alarm_volume != null ? Number(row.alarm_volume) : undefined,
+    latitude: row.latitude != null ? Number(row.latitude) : undefined,
+    longitude: row.longitude != null ? Number(row.longitude) : undefined,
   };
 }
 
@@ -580,6 +584,7 @@ export const store = {
       is_spicy: item.isSpicy ?? false,
       allergens: item.allergens,
       dietary_labels: item.dietaryLabels || [],
+      translations: item.translations || {},
     });
     await fetchAll();
   },
@@ -601,6 +606,7 @@ export const store = {
     if (updates.isSpicy !== undefined) payload.is_spicy = updates.isSpicy;
     if (updates.allergens !== undefined) payload.allergens = updates.allergens;
     if (updates.dietaryLabels !== undefined) payload.dietary_labels = updates.dietaryLabels;
+    if (updates.translations !== undefined) payload.translations = updates.translations;
 
     await supabase.from('menu_items').update(payload).eq('id', id);
     await fetchAll();
@@ -724,6 +730,39 @@ export const store = {
     await fetchAll();
     if (error || !orderId) return null;
     return state.orders.find((o) => o.id === orderId) || null;
+  },
+
+  // Click & Collect : commande à emporter, rattachée à la table virtuelle 999.
+  async createPickupOrder(
+    items: Array<{ menuItem: MenuItem; quantity: number; notes?: string }>,
+    clientName?: string,
+    clientPhone?: string
+  ): Promise<Order | null> {
+    const payload = items.map((i) => ({ menuItemId: i.menuItem.id, quantity: i.quantity, notes: i.notes }));
+    const { data: orderId, error } = await supabase.rpc('create_pickup_order', {
+      p_items: payload,
+      p_client_name: clientName || null,
+      p_client_phone: clientPhone || null,
+    });
+    await fetchAll();
+    if (error || !orderId) return null;
+    return state.orders.find((o) => o.id === orderId) || null;
+  },
+
+  async submitSatisfactionReview(
+    tableId: number | null,
+    orderId: string | null,
+    rating: number,
+    comment?: string
+  ): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('submit_satisfaction_review', {
+      p_table_id: tableId,
+      p_order_id: orderId,
+      p_rating: rating,
+      p_comment: comment || null,
+    });
+    if (error) return { success: false, message: error.message };
+    return { success: true };
   },
 
   async confirmOrder(orderId: string): Promise<boolean> {
@@ -906,6 +945,8 @@ export const store = {
     if (updates.customAudioUrl !== undefined) payload.custom_audio_url = updates.customAudioUrl;
     if (updates.enableLoopAlarm !== undefined) payload.enable_loop_alarm = updates.enableLoopAlarm;
     if (updates.alarmVolume !== undefined) payload.alarm_volume = updates.alarmVolume;
+    if (updates.latitude !== undefined) payload.latitude = updates.latitude;
+    if (updates.longitude !== undefined) payload.longitude = updates.longitude;
 
     await supabase.from('restaurant_settings').update(payload).eq('id', true);
     await fetchAll();

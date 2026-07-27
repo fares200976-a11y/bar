@@ -75,6 +75,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [firebaseApiKey, setFirebaseApiKey] = useState(settings.firebaseConfig?.apiKey || '');
   const [firebaseProjectId, setFirebaseProjectId] = useState(settings.firebaseConfig?.projectId || '');
   const [cloudinaryCloudName, setCloudinaryCloudName] = useState(settings.cloudinaryCloudName || '');
+  const [latitude, setLatitude] = useState<string>(settings.latitude?.toString() || '');
+  const [longitude, setLongitude] = useState<string>(settings.longitude?.toString() || '');
 
   // Audio preference states
   const [alarmSoundType, setAlarmSoundType] = useState(settings.alarmSoundType || 'mp3_alarm_clock');
@@ -112,6 +114,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       customAudioUrl,
       enableLoopAlarm,
       alarmVolume,
+      latitude: latitude ? parseFloat(latitude) : undefined,
+      longitude: longitude ? parseFloat(longitude) : undefined,
       firebaseConfig: firebaseApiKey
         ? { apiKey: firebaseApiKey, authDomain: `${firebaseProjectId}.firebaseapp.com`, projectId: firebaseProjectId }
         : undefined,
@@ -206,6 +210,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               type="text"
               value={openingHours}
               onChange={(e) => setOpeningHours(e.target.value)}
+              className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
+            />
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300">Latitude (pour la météo) :</label>
+            <input
+              type="text"
+              placeholder="ex: 36.7538"
+              value={latitude}
+              onChange={(e) => setLatitude(e.target.value)}
+              className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
+            />
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300">Longitude (pour la météo) :</label>
+            <input
+              type="text"
+              placeholder="ex: 3.0588"
+              value={longitude}
+              onChange={(e) => setLongitude(e.target.value)}
               className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
             />
           </div>

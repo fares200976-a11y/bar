@@ -22,6 +22,7 @@ import { Header } from './components/common/Header';
 import { NotificationToast } from './components/common/NotificationToast';
 import { AlarmBanner } from './components/common/AlarmBanner';
 import { ClientMenuView } from './components/client/ClientMenuView';
+import { KioskMenuView } from './components/client/KioskMenuView';
 import { CartDrawer } from './components/client/CartDrawer';
 import { OrderStatusModal } from './components/client/OrderStatusModal';
 import { AdminLayout, AdminTab } from './components/admin/AdminLayout';
@@ -63,9 +64,11 @@ import { LoginModal } from './components/auth/LoginModal';
 function ClientLandingGate({
   settings,
   onCodeVerified,
+  onPickupMode,
 }: {
   settings: RestaurantSettings;
   onCodeVerified: (tableId: number) => void;
+  onPickupMode: () => void;
 }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -143,6 +146,16 @@ function ClientLandingGate({
               Le numéro de votre table s'affichera automatiquement dès la saisie.
             </p>
           )}
+        </div>
+
+        <div className="pt-2 border-t border-[#E5E2DD] dark:border-[#33332A]">
+          <button
+            onClick={onPickupMode}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-[#F5F2ED] dark:bg-[#26261E] text-[#5A5A40] dark:text-[#D1CECB] rounded-2xl font-semibold text-sm border border-[#E5E2DD] dark:border-[#33332A] hover:bg-[#EDEDE6] transition-colors"
+          >
+            <span>🥡</span>
+            <span>Commander à Emporter (Click & Collect)</span>
+          </button>
         </div>
       </div>
     </main>
@@ -307,9 +320,18 @@ export default function App() {
   // passe à 'commande_en_cours' — la table reste bien vérifiée à ce moment-là.
   const isSelectedTableVerified = Boolean(selectedTable) && selectedTable?.status !== 'libre';
 
-  const activeOrderForTable = appState.orders.find(
-    (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee'
-  );
+  const [pickupOrderId, setPickupOrderId] = useState<string | null>(null);
+
+  // Pour la table virtuelle Click & Collect (999), plusieurs clients peuvent
+  // avoir une commande active en même temps — on ne peut donc pas identifier
+  // "ma commande" juste par tableId comme pour une vraie table. On utilise
+  // l'ID de commande précis, mémorisé au moment de la création.
+  const activeOrderForTable =
+    selectedTableId === 999
+      ? appState.orders.find((o) => o.id === pickupOrderId)
+      : appState.orders.find(
+          (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee'
+        );
 
   // Cart operations
   const handleAddToCart = (item: MenuItem, quantity: number, notes?: string) => {
@@ -343,9 +365,15 @@ export default function App() {
     setCartItems(cartItems.filter((_, idx) => idx !== index));
   };
 
-  const handleSubmitClientOrder = () => {
+  const handleSubmitClientOrder = async () => {
     if (cartItems.length === 0 || !isSelectedTableVerified) return;
-    store.createOrder(selectedTableId, cartItems);
+
+    if (selectedTableId === 999) {
+      const order = await store.createPickupOrder(cartItems);
+      if (order) setPickupOrderId(order.id);
+    } else {
+      store.createOrder(selectedTableId, cartItems);
+    }
     setCartItems([]);
   };
 
@@ -366,6 +394,13 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // Mode "borne tactile extérieure" (?kiosk=1) : menu en lecture seule, sans
+  // panier ni commande, pensé pour une tablette fixée en vitrine.
+  const isKioskMode = new URLSearchParams(window.location.search).get('kiosk') === '1';
+  if (isKioskMode) {
+    return <KioskMenuView categories={appState.categories} menu={appState.menu} settings={appState.settings} />;
   }
 
   return (
@@ -407,6 +442,10 @@ export default function App() {
             settings={appState.settings}
             onCodeVerified={(tableId) => {
               setSelectedTableId(tableId);
+              setClientAccessGranted(true);
+            }}
+            onPickupMode={() => {
+              setSelectedTableId(999);
               setClientAccessGranted(true);
             }}
           />
@@ -466,6 +505,9 @@ export default function App() {
               if (!isSelectedTableVerified) return;
               store.requestBill(selectedTableId);
             }}
+            onSubmitReview={(rating, comment) =>
+              store.submitSatisfactionReview(selectedTableId, activeOrderForTable?.id || null, rating, comment)
+            }
           />
         </main>
         )
