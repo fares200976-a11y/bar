@@ -1,90 +1,151 @@
-// Supabase Edge Function : login-by-pin
+// Supabase Edge Function : create-staff-user
 //
-// Connexion rapide serveur par QR Code (?waiterPin=2001), mais SÉCURISÉE :
-// contrairement à la première version de l'app qui se contentait d'afficher
-// l'interface sans vraie authentification, ici :
-//   1. Le PIN est vérifié côté serveur (jamais exposé/comparé côté navigateur).
-//   2. Une vraie session Supabase Auth est émise via un "magic link" généré
-//      par l'API admin, que le client échange ensuite avec verifyOtp().
-// Résultat : après un scan PIN réussi, auth.uid() fonctionne normalement dans
-// toutes les policies RLS / fonctions RPC, exactement comme un login classique.
+// Crée un compte Supabase Auth + son profil (public.profiles) pour un membre
+// du personnel. Doit être appelée UNIQUEMENT par un admin déjà connecté.
 //
-// Déploiement : supabase functions deploy login-by-pin
+// Pourquoi une Edge Function et pas un simple insert côté client ?
+// Créer un utilisateur Supabase Auth nécessite la clé "service_role", qui a
+// tous les droits et ne doit JAMAIS être envoyée au navigateur. Cette fonction
+// tourne côté serveur (chez Supabase), reçoit le JWT de l'admin appelant pour
+// vérifier son rôle, puis utilise la clé service en interne uniquement.
+//
+// Déploiement : supabase functions deploy create-staff-user
+// Variables d'environnement nécessaires (Supabase les fournit automatiquement) :
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
+const STAFF_EMAIL_DOMAIN = Deno.env.get('STAFF_EMAIL_DOMAIN') || 'staff.internal';
+
+// Sans ces en-têtes CORS, un appel fait depuis le navigateur (supabase.functions.invoke)
+// échoue systématiquement avec "Failed to send a request to the Edge Function" — même si
+// la fonction elle-même fonctionne parfaitement en curl/Postman (pas soumis au CORS).
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-function jsonResponse(body: Record<string, unknown>, status: number) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
 Deno.serve(async (req: Request) => {
+  // Le navigateur envoie d'abord une requête "preflight" OPTIONS avant le vrai POST —
+  // il faut y répondre correctement, sinon le vrai appel n'est jamais envoyé.
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
     if (req.method !== 'POST') {
-      return jsonResponse({ error: 'Méthode non autorisée.' }, 405);
+      return new Response(JSON.stringify({ error: 'Méthode non autorisée.' }), {
+        status: 405,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    const { pinCode } = (await req.json()) as { pinCode?: string };
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const callerToken = authHeader.replace('Bearer ', '');
 
-    if (!pinCode || !/^\d{4}$/.test(pinCode)) {
-      return jsonResponse({ error: 'Code PIN à 4 chiffres requis.' }, 400);
+    if (!callerToken) {
+      return new Response(JSON.stringify({ error: 'Non authentifié.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
-    // Le PIN n'identifie que les comptes serveur actifs — jamais admin/manager/etc.
-    const { data: profile, error: profileError } = await adminClient
-      .from('profiles')
-      .select('id, active, role')
-      .eq('pin_code', pinCode)
-      .eq('role', 'serveur')
-      .maybeSingle();
-
-    if (profileError || !profile) {
-      return jsonResponse({ error: 'Code PIN invalide.' }, 401);
-    }
-
-    if (!profile.active) {
-      return jsonResponse({ error: 'Ce compte a été désactivé. Contactez un administrateur.' }, 403);
-    }
-
-    const { data: authUser, error: authError } = await adminClient.auth.admin.getUserById(profile.id);
-    if (authError || !authUser?.user?.email) {
-      return jsonResponse({ error: 'Compte introuvable.' }, 401);
-    }
-
-    const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-      type: 'magiclink',
-      email: authUser.user.email,
+    const callerClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
     });
 
-    if (linkError || !linkData?.properties?.hashed_token) {
-      return jsonResponse({ error: 'Impossible de générer la session.' }, 500);
+    const { data: userData, error: userError } = await callerClient.auth.getUser(callerToken);
+    if (userError || !userData?.user) {
+      return new Response(JSON.stringify({ error: 'Session invalide.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    return jsonResponse(
-      {
-        success: true,
-        email: authUser.user.email,
-        tokenHash: linkData.properties.hashed_token,
-      },
-      200
-    );
+    const { data: callerProfile, error: profileError } = await callerClient
+      .from('profiles')
+      .select('role')
+      .eq('id', userData.user.id)
+      .single();
+
+    if (profileError || callerProfile?.role !== 'admin') {
+      return new Response(JSON.stringify({ error: 'Seul un administrateur peut créer un compte.' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const body = await req.json();
+    const { username, password, name, role, phone, pinCode } = body as {
+      username: string;
+      password: string;
+      name: string;
+      role: 'admin' | 'manager' | 'serveur' | 'cuisinier' | 'caissier';
+      phone?: string;
+      pinCode?: string;
+    };
+
+    if (!username || !password || !name || !role) {
+      return new Response(JSON.stringify({ error: 'Champs requis manquants (username, password, name, role).' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (password.length < 6) {
+      return new Response(JSON.stringify({ error: 'Le mot de passe doit contenir au moins 6 caractères.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+    const syntheticEmail = `${username.toLowerCase()}@${STAFF_EMAIL_DOMAIN}`;
+
+    const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+      email: syntheticEmail,
+      password,
+      email_confirm: true,
+    });
+
+    if (createError || !created?.user) {
+      return new Response(JSON.stringify({ error: createError?.message || 'Création du compte impossible.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { error: insertError } = await adminClient.from('profiles').insert({
+      id: created.user.id,
+      username: username.toLowerCase(),
+      name,
+      role,
+      phone: phone || null,
+      pin_code: pinCode || null,
+      active: true,
+    });
+
+    if (insertError) {
+      await adminClient.auth.admin.deleteUser(created.user.id);
+      return new Response(JSON.stringify({ error: insertError.message }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true, userId: created.user.id }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (err) {
-    return jsonResponse({ error: (err as Error).message || 'Erreur interne.' }, 500);
+    return new Response(JSON.stringify({ error: (err as Error).message || 'Erreur interne.' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
