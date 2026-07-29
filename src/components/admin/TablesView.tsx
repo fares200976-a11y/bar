@@ -397,11 +397,11 @@ export const TablesView: React.FC<TablesViewProps> = ({
                     Consommation Actuelle en Direct :
                   </p>
                   {getTableActiveOrder(selectedTable.id)?.items.map((it) => (
-                    <div key={it.id} className="flex justify-between text-xs py-0.5">
-                      <span className="text-slate-700 dark:text-slate-300">
+                    <div key={it.id} className="flex justify-between items-center py-0.5">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">
                         {it.quantity}x {it.name}
                       </span>
-                      <span className="font-extrabold text-slate-900 dark:text-white">
+                      <span className="text-xs font-extrabold text-slate-900 dark:text-white">
                         {formatCurrency(it.unitPrice * it.quantity, settings.currency)}
                       </span>
                     </div>
