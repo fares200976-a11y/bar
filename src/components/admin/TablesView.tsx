@@ -14,11 +14,15 @@ import {
   RefreshCw,
   QrCode,
   Clock,
-  Bell
+  Bell,
+  ScanLine,
+  ShoppingBasket
 } from 'lucide-react';
-import { Table, Order, Waiter, RestaurantSettings, TableStatus, User } from '../../types';
+import { Table, Order, Waiter, RestaurantSettings, TableStatus, User, MenuItem, Category } from '../../types';
 import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel, formatElapsedSince } from '../../utils/formatters';
 import { store } from '../../services/store';
+import { QuickAddProductModal } from './QuickAddProductModal';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface TablesViewProps {
   tables: Table[];
@@ -26,6 +30,8 @@ interface TablesViewProps {
   waiters: Waiter[];
   settings: RestaurantSettings;
   currentUser?: User | null;
+  categories: Category[];
+  menu: MenuItem[];
   onUpdateStatus: (tableId: number, status: TableStatus) => void;
   onAssignWaiter: (tableId: number, waiterId: string | undefined) => void;
   onMoveOrder: (fromTableId: number, toTableId: number) => Promise<boolean>;
@@ -33,6 +39,15 @@ interface TablesViewProps {
   onConfirmOrder: (orderId: string) => Promise<boolean>;
   onMarkServed: (orderId: string) => Promise<{ success: boolean; message?: string }>;
   onOpenCashierForTable: (tableId: number) => void;
+  onAddItemsToTable: (
+    tableId: number,
+    items: Array<{ menuItem: MenuItem; quantity: number }>
+  ) => Promise<{ success: boolean; message?: string }>;
+  onAddItemByBarcode: (
+    tableId: number,
+    barcode: string,
+    quantity?: number
+  ) => Promise<{ success: boolean; message?: string }>;
 }
 
 export const TablesView: React.FC<TablesViewProps> = ({
@@ -41,6 +56,8 @@ export const TablesView: React.FC<TablesViewProps> = ({
   waiters,
   settings,
   currentUser,
+  categories,
+  menu,
   onUpdateStatus,
   onAssignWaiter,
   onMoveOrder,
@@ -48,11 +65,17 @@ export const TablesView: React.FC<TablesViewProps> = ({
   onConfirmOrder,
   onMarkServed,
   onOpenCashierForTable,
+  onAddItemsToTable,
+  onAddItemByBarcode,
 }) => {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [targetTableId, setTargetTableId] = useState<number>(2);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+  const canQuickAdd = currentUser?.role === 'admin' || currentUser?.role === 'manager' || currentUser?.role === 'serveur';
+  const canScanBon = currentUser?.role === 'admin';
 
   const handleMarkServed = async (orderId: string) => {
     const result = await onMarkServed(orderId);
@@ -390,6 +413,30 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 </div>
               )}
 
+              {/* Ajout rapide de produits / scan de bon */}
+              {(canQuickAdd || canScanBon) && (
+                <div className="grid grid-cols-2 gap-3">
+                  {canQuickAdd && (
+                    <button
+                      onClick={() => setShowQuickAdd(true)}
+                      className="flex items-center justify-center gap-2 p-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-md transition-colors cursor-pointer"
+                    >
+                      <ShoppingBasket className="w-4 h-4" />
+                      <span>Ajouter un produit</span>
+                    </button>
+                  )}
+                  {canScanBon && (
+                    <button
+                      onClick={() => setShowScanner(true)}
+                      className="flex items-center justify-center gap-2 p-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black text-xs shadow-md transition-colors cursor-pointer"
+                    >
+                      <ScanLine className="w-4 h-4" />
+                      <span>Scanner un bon</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Active Consumption Breakdown */}
               {getTableActiveOrder(selectedTable.id) ? (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2">
@@ -547,6 +594,32 @@ export const TablesView: React.FC<TablesViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Quick Add Product Modal */}
+      {showQuickAdd && selectedTable && (
+        <QuickAddProductModal
+          tableName={selectedTable.name}
+          categories={categories}
+          menu={menu}
+          settings={settings}
+          onAdd={async (menuItem, quantity) => {
+            const result = await onAddItemsToTable(selectedTable.id, [{ menuItem, quantity }]);
+            if (!result.success) {
+              alert(result.message || "Impossible d'ajouter ce produit.");
+            }
+          }}
+          onClose={() => setShowQuickAdd(false)}
+        />
+      )}
+
+      {/* Barcode / QR Bon Scanner Modal — admin uniquement */}
+      {showScanner && selectedTable && canScanBon && (
+        <BarcodeScannerModal
+          tableName={selectedTable.name}
+          onScanned={(code) => onAddItemByBarcode(selectedTable.id, code)}
+          onClose={() => setShowScanner(false)}
+        />
       )}
     </div>
   );
