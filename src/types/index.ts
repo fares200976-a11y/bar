@@ -49,6 +49,7 @@ export interface MenuItem {
   allergens: string[]; // e.g., ['Gluten', 'Lait', 'Arachides']
   dietaryLabels?: string[]; // e.g., ['Végétarien', 'Vegan', 'Sans Gluten', 'Fait Maison']
   translations?: Record<string, { name?: string; description?: string }>; // ex: { en: { name, description } }
+  barcode?: string; // code-barres / QR du bon, utilisé pour l'ajout auto à l'addition (admin uniquement)
 }
 
 export interface OrderItemOption {
