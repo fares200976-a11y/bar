@@ -243,6 +243,7 @@ function mapMenuItem(row: any): MenuItem {
     allergens: row.allergens || [],
     dietaryLabels: row.dietary_labels || [],
     translations: row.translations || {},
+    barcode: row.barcode ?? undefined,
   };
 }
 
@@ -737,6 +738,46 @@ export const store = {
     await fetchAll();
     if (error || !orderId) return null;
     return state.orders.find((o) => o.id === orderId) || null;
+  },
+
+  // Ajout rapide par le personnel (admin/manager/serveur) depuis le plan de
+  // salle : ajoute directement les articles à l'addition de la table
+  // (pas de validation nécessaire, contrairement à create_client_order).
+  async addItemsToTable(
+    tableId: number,
+    items: Array<{ menuItem: MenuItem; quantity: number }>
+  ): Promise<{ success: boolean; message?: string }> {
+    const payload = items.map((i) => ({ menuItemId: i.menuItem.id, quantity: i.quantity }));
+    const { error } = await supabase.rpc('staff_add_items_to_table', {
+      p_table_id: tableId,
+      p_items: payload,
+    });
+    await fetchAll();
+    if (error) {
+      console.error('addItemsToTable error:', error);
+      return { success: false, message: error.message };
+    }
+    return { success: true };
+  },
+
+  // Scan d'un bon (code-barres/QR) — réservé admin côté RPC. Retrouve le
+  // produit par son code-barres et l'ajoute automatiquement à l'addition.
+  async addItemByBarcode(
+    tableId: number,
+    barcode: string,
+    quantity = 1
+  ): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('staff_add_item_by_barcode', {
+      p_table_id: tableId,
+      p_barcode: barcode,
+      p_quantity: quantity,
+    });
+    await fetchAll();
+    if (error) {
+      console.error('addItemByBarcode error:', error);
+      return { success: false, message: error.message };
+    }
+    return { success: true };
   },
 
   // Click & Collect : commande à emporter, rattachée à la table virtuelle 999.
