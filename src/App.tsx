@@ -559,6 +559,8 @@ export default function App() {
               waiters={appState.waiters}
               settings={appState.settings}
               currentUser={currentUser}
+              categories={appState.categories}
+              menu={appState.menu}
               onUpdateStatus={(tId, st) => store.updateTableStatus(tId, st)}
               onAssignWaiter={(tId, wId) => store.assignWaiterToTable(tId, wId)}
               onMoveOrder={(fromId, toId) => store.moveOrderBetweenTables(fromId, toId)}
@@ -569,6 +571,8 @@ export default function App() {
                 setSelectedTableId(tId);
                 setAdminTab('cashier');
               }}
+              onAddItemsToTable={(tId, items) => store.addItemsToTable(tId, items)}
+              onAddItemByBarcode={(tId, code, qty) => store.addItemByBarcode(tId, code, qty)}
             />
           )}
 
