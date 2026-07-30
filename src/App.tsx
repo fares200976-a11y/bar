@@ -605,7 +605,7 @@ export default function App() {
               categories={appState.categories}
               menu={appState.menu}
               settings={appState.settings}
-              onAddCategory={(name) => store.addCategory(name)}
+              onAddCategory={(name, icon, section) => store.addCategory(name, icon, section)}
               onDeleteCategory={(id) => store.deleteCategory(id)}
               onAddMenuItem={(item) => store.addMenuItem(item)}
               onUpdateMenuItem={(id, updates) => store.updateMenuItem(id, updates)}
