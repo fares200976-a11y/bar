@@ -221,7 +221,13 @@ export function playChimeSound(type: 'order' | 'ready' | 'call' = 'order') {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 function mapCategory(row: any): Category {
-  return { id: row.id, name: row.name, icon: row.icon ?? undefined, order: row.sort_order };
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon ?? undefined,
+    order: row.sort_order,
+    section: row.section === 'bar' ? 'bar' : 'food',
+  };
 }
 
 function mapMenuItem(row: any): MenuItem {
@@ -565,8 +571,8 @@ export const store = {
   },
 
   // --- MENU & CATEGORIES (admin/manager — cf. policies categories_write_admin / menu_items_write_admin) ---
-  async addCategory(name: string, icon?: string) {
-    await supabase.from('categories').insert({ name, icon, sort_order: state.categories.length + 1 });
+  async addCategory(name: string, icon?: string, section: 'food' | 'bar' = 'food') {
+    await supabase.from('categories').insert({ name, icon, sort_order: state.categories.length + 1, section });
     await fetchAll();
   },
 
@@ -593,6 +599,7 @@ export const store = {
       allergens: item.allergens,
       dietary_labels: item.dietaryLabels || [],
       translations: item.translations || {},
+      barcode: item.barcode || null,
     });
     await fetchAll();
   },
@@ -615,6 +622,7 @@ export const store = {
     if (updates.allergens !== undefined) payload.allergens = updates.allergens;
     if (updates.dietaryLabels !== undefined) payload.dietary_labels = updates.dietaryLabels;
     if (updates.translations !== undefined) payload.translations = updates.translations;
+    if (updates.barcode !== undefined) payload.barcode = updates.barcode || null;
 
     await supabase.from('menu_items').update(payload).eq('id', id);
     await fetchAll();
@@ -1095,6 +1103,7 @@ export const store = {
             is_spicy: m.isSpicy ?? false,
             allergens: m.allergens,
             dietary_labels: m.dietaryLabels || [],
+            barcode: m.barcode || null,
           }))
         );
         if (error) throw error;
