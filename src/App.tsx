@@ -591,6 +591,9 @@ export default function App() {
               tables={appState.tables}
               orders={appState.orders}
               settings={appState.settings}
+              categories={appState.categories}
+              menu={appState.menu}
+              onAddItemsToTable={(tId, items) => store.addItemsToTable(tId, items)}
               onProcessPayment={(oId, method, disc, cash, breakdown) =>
                 store.processBillPayment(oId, method, disc, cash, breakdown, currentUser?.id)
               }
