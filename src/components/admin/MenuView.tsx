@@ -14,10 +14,13 @@ import {
   Clock,
   Layers,
   UploadCloud,
-  CheckCircle2
+  CheckCircle2,
+  Barcode,
+  Table2
 } from 'lucide-react';
 import { Category, MenuItem, RestaurantSettings } from '../../types';
 import { formatCurrency, DIETARY_LABEL_OPTIONS } from '../../utils/formatters';
+import { PriceTableModal } from './PriceTableModal';
 
 interface MenuViewProps {
   categories: Category[];
@@ -45,6 +48,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [selectedCatId, setSelectedCatId] = useState<string>('all');
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [showPriceTable, setShowPriceTable] = useState(false);
 
   // Item Modal state
   const [showItemModal, setShowItemModal] = useState(false);
@@ -66,6 +70,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [formIsSpicy, setFormIsSpicy] = useState(false);
   const [formAllergens, setFormAllergens] = useState<string>('');
   const [formDietaryLabels, setFormDietaryLabels] = useState<string[]>([]);
+  const [formBarcode, setFormBarcode] = useState<string>('');
 
   const openAddItemModal = () => {
     setEditingItemId(null);
@@ -84,6 +89,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsSpicy(false);
     setFormAllergens('Gluten, Lait');
     setFormDietaryLabels([]);
+    setFormBarcode('');
     setShowItemModal(true);
   };
 
@@ -104,6 +110,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsSpicy(Boolean(item.isSpicy));
     setFormAllergens(item.allergens.join(', '));
     setFormDietaryLabels(item.dietaryLabels || []);
+    setFormBarcode(item.barcode || '');
     setShowItemModal(true);
   };
 
@@ -127,6 +134,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
         .map((a) => a.trim())
         .filter(Boolean),
       dietaryLabels: formDietaryLabels,
+      barcode: formBarcode.trim() || undefined,
     };
 
     if (editingItemId) {
@@ -163,6 +171,14 @@ export const MenuView: React.FC<MenuViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowPriceTable(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-2xl font-bold text-xs hover:bg-slate-200 transition-colors"
+          >
+            <Table2 className="w-4 h-4 text-emerald-500" />
+            <span>Tableau des Prix</span>
+          </button>
+
           <button
             onClick={() => setShowCategoryModal(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-2xl font-bold text-xs hover:bg-slate-200 transition-colors"
@@ -271,6 +287,12 @@ export const MenuView: React.FC<MenuViewProps> = ({
                   {item.isPromo && item.promoPrice && (
                     <span className="text-xs text-rose-600 font-bold bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-lg">
                       Promo : {formatCurrency(item.promoPrice, settings.currency)}
+                    </span>
+                  )}
+                  {item.barcode && (
+                    <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
+                      <Barcode className="w-3 h-3" />
+                      <span className="font-mono">{item.barcode}</span>
                     </span>
                   )}
                 </div>
@@ -407,6 +429,22 @@ export const MenuView: React.FC<MenuViewProps> = ({
               </div>
 
               <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Code-barres / QR du bon (pour le scan admin) :
+                </label>
+                <input
+                  type="text"
+                  value={formBarcode}
+                  onChange={(e) => setFormBarcode(e.target.value)}
+                  placeholder="Scannez ou saisissez le code..."
+                  className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 font-mono"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Optionnel. Permet d'ajouter ce produit automatiquement à l'addition en scannant son bon.
+                </p>
+              </div>
+
+              <div>
                 <label className="font-bold text-slate-700 dark:text-slate-300">URL Photo Principale (Cloudinary/Unsplash) :</label>
                 <input
                   type="text"
@@ -531,6 +569,16 @@ export const MenuView: React.FC<MenuViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {showPriceTable && (
+        <PriceTableModal
+          categories={categories}
+          menu={menu}
+          settings={settings}
+          onUpdatePrice={(id, price) => onUpdateMenuItem(id, { price })}
+          onClose={() => setShowPriceTable(false)}
+        />
       )}
     </div>
   );
