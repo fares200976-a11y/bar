@@ -32,6 +32,8 @@ export interface AuthResult {
   success: boolean;
   message?: string;
   user?: User;
+  needsMfa?: boolean;
+  mfaFactorId?: string;
 }
 
 // Connexion classique identifiant + mot de passe (remplace la vérification
@@ -44,6 +46,21 @@ export async function signInWithUsername(username: string, password: string): Pr
 
   if (error || !data.user) {
     return { success: false, message: 'Identifiant ou mot de passe incorrect.' };
+  }
+
+  // Le mot de passe seul suffit pour passer en aal1. Si ce compte a activé la
+  // double authentification, Supabase indique qu'il faut encore monter en
+  // aal2 — on ne complète PAS la connexion ici, on demande le code à 6 chiffres.
+  const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aalData && aalData.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
+    const { data: factorsData } = await supabase.auth.mfa.listFactors();
+    const totpFactor = factorsData?.totp?.[0];
+    return {
+      success: false,
+      needsMfa: true,
+      mfaFactorId: totpFactor?.id,
+      message: 'Code de double authentification requis.',
+    };
   }
 
   const profile = await fetchOwnProfile();
@@ -164,4 +181,109 @@ function mapProfileRowToUser(row: Record<string, unknown>): User {
     avatar: (row.avatar as string) || undefined,
     active: row.active as boolean,
   };
+}
+
+// ----------------------------------------------------------------------------
+// DOUBLE AUTHENTIFICATION (MFA — TOTP via Google Authenticator / Authy...)
+// ----------------------------------------------------------------------------
+
+// Étape 2 de la connexion, quand signInWithUsername a renvoyé needsMfa: true.
+export async function verifyMfaCode(factorId: string, code: string): Promise<AuthResult> {
+  const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
+  if (challengeError || !challengeData) {
+    return { success: false, message: 'Impossible de générer le défi de vérification.' };
+  }
+
+  const { error: verifyError } = await supabase.auth.mfa.verify({
+    factorId,
+    challengeId: challengeData.id,
+    code: code.trim(),
+  });
+
+  if (verifyError) {
+    return { success: false, message: 'Code incorrect. Réessayez.' };
+  }
+
+  const profile = await fetchOwnProfile();
+  if (!profile) {
+    await supabase.auth.signOut();
+    return { success: false, message: 'Profil introuvable pour ce compte.' };
+  }
+  if (!profile.active) {
+    await supabase.auth.signOut();
+    return { success: false, message: 'Ce compte a été désactivé. Contactez un administrateur.' };
+  }
+
+  return { success: true, user: profile };
+}
+
+export interface MfaFactor {
+  id: string;
+  friendlyName?: string;
+  status: string;
+}
+
+// Liste les facteurs déjà activés pour le compte actuellement connecté
+// (utilisé dans l'écran Paramètres > Sécurité).
+export async function listMfaFactors(): Promise<MfaFactor[]> {
+  const { data, error } = await supabase.auth.mfa.listFactors();
+  if (error || !data) return [];
+  return (data.totp || []).map((f) => ({ id: f.id, friendlyName: f.friendly_name, status: f.status }));
+}
+
+export interface MfaEnrollResult {
+  success: boolean;
+  message?: string;
+  factorId?: string;
+  qrCode?: string;
+  secret?: string;
+}
+
+// Démarre l'activation : génère un QR code + un secret à scanner avec une
+// application d'authentification (Google Authenticator, Authy...).
+export async function enrollMfaTotp(): Promise<MfaEnrollResult> {
+  const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+  if (error || !data) {
+    return { success: false, message: error?.message || "Impossible de démarrer l'activation." };
+  }
+  return {
+    success: true,
+    factorId: data.id,
+    qrCode: data.totp.qr_code,
+    secret: data.totp.secret,
+  };
+}
+
+// Confirme l'activation avec le premier code à 6 chiffres généré par
+// l'application (obligatoire pour que le facteur devienne réellement actif).
+export async function confirmMfaEnrollment(factorId: string, code: string): Promise<{ success: boolean; message?: string }> {
+  const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
+  if (challengeError || !challengeData) {
+    return { success: false, message: 'Impossible de générer le défi de vérification.' };
+  }
+
+  const { error: verifyError } = await supabase.auth.mfa.verify({
+    factorId,
+    challengeId: challengeData.id,
+    code: code.trim(),
+  });
+
+  if (verifyError) {
+    return { success: false, message: "Code incorrect. Vérifiez l'heure de votre téléphone et réessayez." };
+  }
+
+  return { success: true };
+}
+
+// Désactive la double authentification pour ce compte.
+export async function unenrollMfaFactor(factorId: string): Promise<{ success: boolean; message?: string }> {
+  const { error } = await supabase.auth.mfa.unenroll({ factorId });
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+// Un facteur en cours d'activation mais jamais confirmé reste "unverified" —
+// on le retire proprement si l'utilisateur annule en cours de route.
+export async function cancelMfaEnrollment(factorId: string): Promise<void> {
+  await supabase.auth.mfa.unenroll({ factorId });
 }
