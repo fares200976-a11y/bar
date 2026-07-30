@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Receipt,
   CreditCard,
@@ -6,24 +6,29 @@ import {
   Smartphone,
   Split,
   Printer,
-  Calculator,
-  Percent,
   CheckCircle2,
-  DollarSign,
-  Layers,
   Lock,
   ArrowDownToLine,
   AlertTriangle,
+  Search,
+  ShoppingBasket,
 } from 'lucide-react';
-import { Bill, Order, PaymentBreakdown, PaymentMethod, RestaurantSettings, Table } from '../../types';
+import { Bill, Category, MenuItem, Order, PaymentBreakdown, PaymentMethod, RestaurantSettings, Table } from '../../types';
 import { calculateOrderTotals, formatCurrency } from '../../utils/formatters';
 import { printThermalReceipt } from '../../utils/export';
 import { store } from '../../services/store';
+import { NumericKeypad } from './NumericKeypad';
 
 interface CashierViewProps {
   tables: Table[];
   orders: Order[];
   settings: RestaurantSettings;
+  categories: Category[];
+  menu: MenuItem[];
+  onAddItemsToTable: (
+    tableId: number,
+    items: Array<{ menuItem: MenuItem; quantity: number }>
+  ) => Promise<{ success: boolean; message?: string }>;
   onProcessPayment: (
     orderId: string,
     paymentMethod: PaymentMethod,
@@ -37,6 +42,9 @@ export const CashierView: React.FC<CashierViewProps> = ({
   tables,
   orders,
   settings,
+  categories,
+  menu,
+  onAddItemsToTable,
   onProcessPayment,
 }) => {
   const [selectedTableId, setSelectedTableId] = useState<number>(1);
@@ -45,6 +53,11 @@ export const CashierView: React.FC<CashierViewProps> = ({
   const [cashReceivedInput, setCashReceivedInput] = useState<string>('');
   const [splitCount, setSplitCount] = useState<number>(2);
   const [lastProcessedBill, setLastProcessedBill] = useState<{ bill: Bill; order: Order } | null>(null);
+
+  // Grille produits (ajout rapide directement depuis la caisse)
+  const [activeCategoryId, setActiveCategoryId] = useState<string>('all');
+  const [productSearch, setProductSearch] = useState('');
+  const [addingItemId, setAddingItemId] = useState<string | null>(null);
 
   // Une commande pas encore confirmée par le serveur ne doit pas être encaissable.
   const activeOrder = orders.find(
@@ -59,7 +72,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
     ? calculateOrderTotals(activeOrder, settings.vatRate, settings.serviceRate, discountInput)
     : { subtotal: 0, vatAmount: 0, serviceAmount: 0, grandTotal: 0 };
 
-  const cashNum = parseFloat(cashReceivedInput) || 0;
+  const cashNum = parseFloat(cashReceivedInput.replace(',', '.')) || 0;
   const changeToGive = Math.max(0, cashNum - grandTotal);
 
   const [isPaying, setIsPaying] = useState(false);
@@ -148,8 +161,32 @@ export const CashierView: React.FC<CashierViewProps> = ({
     }
   };
 
+  // --- Clavier numérique -> alimente le champ "espèces reçues" ---
+  const appendDigitToCash = (digit: string) => {
+    setCashReceivedInput((prev) => {
+      if (digit === '.' && prev.includes('.')) return prev;
+      if (prev === '0' && digit !== '.') return digit;
+      return prev + digit;
+    });
+  };
+  const clearCash = () => setCashReceivedInput('');
+  const backspaceCash = () => setCashReceivedInput((prev) => prev.slice(0, -1));
+
+  // --- Grille produits ---
+  const filteredMenu = useMemo(() => {
+    return menu
+      .filter((m) => (activeCategoryId === 'all' ? true : m.categoryId === activeCategoryId))
+      .filter((m) => m.name.toLowerCase().includes(productSearch.trim().toLowerCase()));
+  }, [menu, activeCategoryId, productSearch]);
+
+  const handleAddProduct = async (item: MenuItem) => {
+    setAddingItemId(item.id);
+    await onAddItemsToTable(selectedTableId, [{ menuItem: item, quantity: 1 }]);
+    setAddingItemId(null);
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -158,7 +195,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
             <span>Caisse POS & Encaissements</span>
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Calculateur d'addition, encaissement multi-modes, monnaie et impression de reçu.
+            Ticket, ajout de produits, clavier numérique et encaissement — tout depuis un seul écran.
           </p>
         </div>
 
@@ -188,121 +225,110 @@ export const CashierView: React.FC<CashierViewProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Table Selector Grid */}
-        <div className="lg:col-span-5 space-y-4">
-          <h3 className="font-bold text-sm text-slate-900 dark:text-white">Sélectionner la Table à Encaisser</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {tables.map((table) => {
-              const activeOrd = orders.find(
-                (o) =>
-                  o.tableId === table.id &&
-                  o.status !== 'terminee' &&
-                  o.status !== 'annulee' &&
-                  o.status !== 'en_attente_validation'
-              );
-              const isSelected = selectedTableId === table.id;
+      {/* Bandeau tables — sélection rapide façon "N° table" */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {tables.map((table) => {
+          const activeOrd = orders.find(
+            (o) =>
+              o.tableId === table.id &&
+              o.status !== 'terminee' &&
+              o.status !== 'annulee' &&
+              o.status !== 'en_attente_validation'
+          );
+          const isSelected = selectedTableId === table.id;
 
-              return (
-                <button
-                  key={table.id}
-                  onClick={() => setSelectedTableId(table.id)}
-                  className={`p-4 rounded-2xl border text-left transition-all ${
-                    isSelected
-                      ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/20 scale-102'
-                      : activeOrd
-                      ? 'bg-white dark:bg-slate-900 border-purple-300 dark:border-purple-800 text-slate-900 dark:text-white hover:border-purple-500'
-                      : 'bg-slate-100 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400'
-                  }`}
-                >
-                  <p className="font-black text-sm">{table.name}</p>
-                  {activeOrd ? (
-                    <p className={`text-xs font-extrabold mt-1 ${isSelected ? 'text-white' : 'text-purple-600 dark:text-purple-400'}`}>
-                      {formatCurrency(
-                        activeOrd.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0),
-                        settings.currency
-                      )}
-                    </p>
-                  ) : (
-                    <p className={`text-[11px] mt-1 ${isSelected ? 'text-white/70' : 'text-slate-400'}`}>
-                      Aucune commande
-                    </p>
+          return (
+            <button
+              key={table.id}
+              onClick={() => setSelectedTableId(table.id)}
+              className={`shrink-0 px-4 py-2.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                isSelected
+                  ? 'bg-rose-600 text-white border-rose-600 shadow-md'
+                  : activeOrd
+                  ? 'bg-white dark:bg-slate-900 border-purple-300 dark:border-purple-800 text-slate-900 dark:text-white hover:border-purple-500'
+                  : 'bg-slate-100 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400'
+              }`}
+            >
+              <p className="font-black text-xs whitespace-nowrap">{table.name}</p>
+              {activeOrd && (
+                <p className={`text-[11px] font-extrabold mt-0.5 ${isSelected ? 'text-white' : 'text-purple-600 dark:text-purple-400'}`}>
+                  {formatCurrency(
+                    activeOrd.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0),
+                    settings.currency
                   )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+                </p>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-        {/* Right Column: Active Bill & Payment Panel */}
-        <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+      {/* Trois colonnes : Ticket | Grille Produits | Clavier + Paiement */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        {/* ---------------- Colonne Ticket ---------------- */}
+        <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
           {!activeOrder ? (
-            <div className="text-center py-20 text-slate-400 space-y-2">
+            <div className="text-center py-16 text-slate-400 space-y-2 m-auto">
               <Receipt className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700" />
               <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
                 Table {selectedTableId} : Aucune addition en cours
               </p>
-              <p className="text-xs text-slate-400">Sélectionnez une table avec des consommations actives.</p>
+              <p className="text-xs text-slate-400">Ajoutez un produit depuis la grille pour démarrer.</p>
             </div>
           ) : (
             <>
-              {/* Table & Order Banner */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div>
-                  <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">
+                  <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
                     Addition Table {selectedTableId}
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-[11px] text-slate-400">
                     Commande #{activeOrder.orderNumber} • {activeOrder.items.length} article(s)
                   </p>
                 </div>
-
                 <button
                   onClick={() => printThermalReceipt('addition', activeOrder, undefined, settings)}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl text-xs font-bold transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl text-[11px] font-bold transition-colors shrink-0"
                 >
-                  <Printer className="w-4 h-4" />
-                  <span>Imprimer Proforma</span>
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Proforma</span>
                 </button>
               </div>
 
-              {/* Items Breakdown */}
-              <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+              {/* Liste des articles */}
+              <div className="space-y-1.5 py-3 flex-1 overflow-y-auto min-h-[140px] max-h-72">
                 {activeOrder.items.map((item) => (
                   <div
                     key={item.id}
-                    className="flex items-center justify-between text-xs p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50"
+                    className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50"
                   >
-                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
                       {item.quantity}x {item.name}
                     </span>
-                    <span className="font-extrabold text-slate-900 dark:text-white">
+                    <span className="font-extrabold text-slate-900 dark:text-white shrink-0 pl-2">
                       {formatCurrency(item.unitPrice * item.quantity, settings.currency)}
                     </span>
                   </div>
                 ))}
               </div>
 
-              {/* Remise & Totals Calculation */}
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 space-y-2.5">
+              {/* Totaux */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 space-y-2">
                 <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
                   <span>Sous-total HT :</span>
                   <span className="font-bold">{formatCurrency(subtotal, settings.currency)}</span>
                 </div>
-
                 <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
                   <span>TVA ({settings.vatRate}%) :</span>
                   <span>{formatCurrency(vatAmount, settings.currency)}</span>
                 </div>
-
                 <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
                   <span>Service ({settings.serviceRate}%) :</span>
                   <span>{formatCurrency(serviceAmount, settings.currency)}</span>
                 </div>
 
-                {/* Discount Input */}
                 <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200 dark:border-slate-700">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">Remise / Réduction :</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">Remise :</span>
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
@@ -317,29 +343,112 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 </div>
 
                 <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-600">
-                  <span>TOTAL À PAYER :</span>
+                  <span>TOTAL :</span>
                   <span className="text-xl text-rose-600 dark:text-rose-400">
                     {formatCurrency(grandTotal, settings.currency)}
                   </span>
                 </div>
               </div>
+            </>
+          )}
+        </div>
 
-              {/* Payment Methods Selection */}
+        {/* ---------------- Colonne Grille Produits ---------------- */}
+        <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
+          <div className="relative mb-3">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              placeholder="Rechercher un produit..."
+              className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-rose-500/40"
+            />
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-1">
+            <button
+              onClick={() => setActiveCategoryId('all')}
+              className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-black transition-colors cursor-pointer ${
+                activeCategoryId === 'all'
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              Tout
+            </button>
+            {categories.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setActiveCategoryId(c.id)}
+                className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-black transition-colors cursor-pointer ${
+                  activeCategoryId === c.id
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 overflow-y-auto flex-1 max-h-[26rem] content-start">
+            {filteredMenu.map((item) => {
+              const isUnavailable = !item.isAvailable || item.stockQuantity <= 0;
+              const price = item.isPromo && item.promoPrice != null ? item.promoPrice : item.price;
+              return (
+                <button
+                  key={item.id}
+                  disabled={isUnavailable || addingItemId === item.id}
+                  onClick={() => handleAddProduct(item)}
+                  className={`relative p-3 rounded-2xl border text-left transition-all active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    addingItemId === item.id
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60 hover:border-rose-400 hover:bg-rose-50/50 dark:hover:bg-rose-950/20'
+                  }`}
+                >
+                  <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2 min-h-[2rem]">
+                    {item.name}
+                  </p>
+                  <p className="text-xs font-black text-rose-600 dark:text-rose-400 mt-1.5">
+                    {formatCurrency(price, settings.currency)}
+                  </p>
+                </button>
+              );
+            })}
+            {filteredMenu.length === 0 && (
+              <p className="col-span-2 text-xs text-slate-400 italic text-center py-8">Aucun produit trouvé.</p>
+            )}
+          </div>
+        </div>
+
+        {/* ---------------- Colonne Clavier + Paiement ---------------- */}
+        <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-4">
+          {!activeOrder ? (
+            <div className="text-center py-16 text-slate-400 space-y-2 m-auto">
+              <ShoppingBasket className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
+              <p className="text-xs text-slate-400">
+                Sélectionnez une table avec des consommations pour encaisser.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Modes de paiement — grandes tuiles tactiles */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                   Mode de Paiement :
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {[
-                    { id: 'espèces', label: 'Espèces', icon: <Banknote className="w-4 h-4" /> },
-                    { id: 'carte', label: 'Carte Bancaire', icon: <CreditCard className="w-4 h-4" /> },
-                    { id: 'mobile', label: 'Paiement Mobile', icon: <Smartphone className="w-4 h-4" /> },
-                    { id: 'partagé', label: 'Paiement Partagé', icon: <Split className="w-4 h-4" /> },
+                    { id: 'espèces', label: 'Espèces', icon: <Banknote className="w-5 h-5" /> },
+                    { id: 'carte', label: 'Carte Bancaire', icon: <CreditCard className="w-5 h-5" /> },
+                    { id: 'mobile', label: 'Paiement Mobile', icon: <Smartphone className="w-5 h-5" /> },
+                    { id: 'partagé', label: 'Partagé', icon: <Split className="w-5 h-5" /> },
                   ].map((m) => (
                     <button
                       key={m.id}
                       onClick={() => setPaymentMethod(m.id as PaymentMethod)}
-                      className={`flex items-center justify-center gap-2 py-3 px-2 rounded-2xl text-xs font-bold border transition-all ${
+                      className={`flex flex-col items-center justify-center gap-1.5 py-3.5 px-2 rounded-2xl text-xs font-bold border transition-all cursor-pointer ${
                         paymentMethod === m.id
                           ? 'bg-rose-600 text-white border-rose-600 shadow-md'
                           : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
@@ -352,22 +461,16 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 </div>
               </div>
 
-              {/* Conditional Payment Method Fields */}
+              {/* Espèces : montant reçu + clavier numérique */}
               {paymentMethod === 'espèces' && (
-                <div className="p-4 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-900/40 space-y-3">
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-900/40 space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                      Montant en espèces reçu du client :
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder={grandTotal.toFixed(2)}
-                      value={cashReceivedInput}
-                      onChange={(e) => setCashReceivedInput(e.target.value)}
-                      className="w-32 bg-white dark:bg-slate-900 text-right font-extrabold text-sm p-2 rounded-xl border border-amber-300 dark:border-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
+                    <label className="text-xs font-bold text-amber-900 dark:text-amber-200">Reçu du client :</label>
+                    <div className="px-3 py-2 bg-white dark:bg-slate-900 rounded-xl border border-amber-300 dark:border-amber-800 font-extrabold text-sm text-slate-900 dark:text-white min-w-[7rem] text-right">
+                      {cashReceivedInput || '0'} {settings.currency}
+                    </div>
                   </div>
+                  <NumericKeypad onDigit={appendDigitToCash} onClear={clearCash} onBackspace={backspaceCash} />
                   {cashNum > 0 && (
                     <div className="flex items-center justify-between text-xs font-extrabold pt-2 border-t border-amber-200 dark:border-amber-900/40">
                       <span className="text-amber-900 dark:text-amber-200">Monnaie à rendre :</span>
@@ -379,17 +482,17 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 </div>
               )}
 
-              {/* Split Bill Calculator */}
+              {/* Paiement partagé */}
               {paymentMethod === 'partagé' && (
                 <div className="p-4 bg-purple-50 dark:bg-purple-950/30 rounded-2xl border border-purple-200 dark:border-purple-900/40 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-purple-900 dark:text-purple-200">
-                      Séparer l'addition en combien de personnes ?
+                      Séparer entre combien de personnes ?
                     </span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setSplitCount(Math.max(2, splitCount - 1))}
-                        className="w-7 h-7 bg-white dark:bg-slate-900 rounded-lg font-bold text-sm shadow-xs"
+                        className="w-7 h-7 bg-white dark:bg-slate-900 rounded-lg font-bold text-sm shadow-xs cursor-pointer"
                       >
                         -
                       </button>
@@ -398,15 +501,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       </span>
                       <button
                         onClick={() => setSplitCount(splitCount + 1)}
-                        className="w-7 h-7 bg-white dark:bg-slate-900 rounded-lg font-bold text-sm shadow-xs"
+                        className="w-7 h-7 bg-white dark:bg-slate-900 rounded-lg font-bold text-sm shadow-xs cursor-pointer"
                       >
                         +
                       </button>
                     </div>
                   </div>
-
                   <div className="p-3 bg-white dark:bg-slate-900 rounded-xl flex items-center justify-between text-xs">
-                    <span className="font-semibold">Part individuelle par personne :</span>
+                    <span className="font-semibold">Part par personne :</span>
                     <span className="font-extrabold text-purple-600 dark:text-purple-400 text-sm">
                       {formatCurrency(grandTotal / splitCount, settings.currency)}
                     </span>
@@ -414,42 +516,35 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 </div>
               )}
 
-              {/* Submit Payment */}
               <button
                 onClick={handlePay}
                 disabled={isPaying}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white py-4 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 active:scale-98 transition-all"
+                className="w-full mt-auto bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white py-4 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 active:scale-98 transition-all cursor-pointer"
               >
                 <CheckCircle2 className="w-5 h-5" />
-                <span>{isPaying ? 'Encaissement...' : 'Valider le Paiement & Clôturer Table'}</span>
+                <span>{isPaying ? 'Encaissement...' : `Encaisser ${formatCurrency(grandTotal, settings.currency)}`}</span>
               </button>
             </>
           )}
 
-          {/* Last Processed Receipt Ticket Box */}
           {lastProcessedBill && (
-            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 flex items-center justify-between animate-fade-in">
-              <div>
-                <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                  Dernier encaissement effectué pour Table {lastProcessedBill.bill.tableId}
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 flex items-center justify-between gap-2 animate-fade-in">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 truncate">
+                  Encaissé — Table {lastProcessedBill.bill.tableId}
                 </p>
-                <p className="text-[11px] text-emerald-600">
-                  Total : {formatCurrency(lastProcessedBill.bill.total, settings.currency)} • {lastProcessedBill.bill.paymentMethod}
+                <p className="text-[10px] text-emerald-600">
+                  {formatCurrency(lastProcessedBill.bill.total, settings.currency)} • {lastProcessedBill.bill.paymentMethod}
                 </p>
               </div>
               <button
                 onClick={() =>
-                  printThermalReceipt(
-                    'addition',
-                    lastProcessedBill.order,
-                    lastProcessedBill.bill,
-                    settings
-                  )
+                  printThermalReceipt('addition', lastProcessedBill.order, lastProcessedBill.bill, settings)
                 }
-                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-xs font-bold shadow-xs"
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-[11px] font-bold shadow-xs shrink-0 cursor-pointer"
               >
-                <Printer className="w-4 h-4" />
-                <span>Imprimer Ticket</span>
+                <Printer className="w-3.5 h-3.5" />
+                <span>Ticket</span>
               </button>
             </div>
           )}
