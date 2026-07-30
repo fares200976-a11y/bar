@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   UtensilsCrossed,
   Plus,
@@ -16,7 +16,9 @@ import {
   UploadCloud,
   CheckCircle2,
   Barcode,
-  Table2
+  Table2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Category, MenuItem, RestaurantSettings } from '../../types';
 import { formatCurrency, DIETARY_LABEL_OPTIONS } from '../../utils/formatters';
@@ -26,7 +28,7 @@ interface MenuViewProps {
   categories: Category[];
   menu: MenuItem[];
   settings: RestaurantSettings;
-  onAddCategory: (name: string) => void;
+  onAddCategory: (name: string, icon?: string, section?: 'food' | 'bar') => void;
   onDeleteCategory: (id: string) => void;
   onAddMenuItem: (item: Omit<MenuItem, 'id'>) => void;
   onUpdateMenuItem: (id: string, updates: Partial<MenuItem>) => void;
@@ -48,7 +50,12 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [selectedCatId, setSelectedCatId] = useState<string>('all');
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [newCatSection, setNewCatSection] = useState<'food' | 'bar'>('food');
   const [showPriceTable, setShowPriceTable] = useState(false);
+  const catScrollRef = useRef<HTMLDivElement>(null);
+  const scrollCats = (dir: 'left' | 'right') => {
+    catScrollRef.current?.scrollBy({ left: dir === 'left' ? -220 : 220, behavior: 'smooth' });
+  };
 
   // Item Modal state
   const [showItemModal, setShowItemModal] = useState(false);
@@ -147,8 +154,9 @@ export const MenuView: React.FC<MenuViewProps> = ({
 
   const handleCreateCategory = () => {
     if (newCatName.trim()) {
-      onAddCategory(newCatName.trim());
+      onAddCategory(newCatName.trim(), undefined, newCatSection);
       setNewCatName('');
+      setNewCatSection('food');
       setShowCategoryModal(false);
     }
   };
@@ -198,7 +206,24 @@ export const MenuView: React.FC<MenuViewProps> = ({
       </div>
 
       {/* Category Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+      <div className="relative">
+        <button
+          onClick={() => scrollCats('left')}
+          className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 items-center justify-center rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md cursor-pointer"
+          aria-label="Défiler à gauche"
+        >
+          <ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+        </button>
+
+        <div
+          ref={catScrollRef}
+          onWheel={(e) => {
+            if (e.deltaY !== 0) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+          className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none sm:px-9"
+        >
         <button
           onClick={() => setSelectedCatId('all')}
           className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${
@@ -225,6 +250,15 @@ export const MenuView: React.FC<MenuViewProps> = ({
             </button>
           );
         })}
+        </div>
+
+        <button
+          onClick={() => scrollCats('right')}
+          className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 items-center justify-center rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md cursor-pointer"
+          aria-label="Défiler à droite"
+        >
+          <ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+        </button>
       </div>
 
       {/* Dishes Table / Cards Grid */}
@@ -331,6 +365,35 @@ export const MenuView: React.FC<MenuViewProps> = ({
               onChange={(e) => setNewCatName(e.target.value)}
               className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
             />
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                Cette catégorie apparaît dans quelle page côté client ?
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewCatSection('food')}
+                  className={`py-2.5 rounded-2xl text-xs font-black transition-colors cursor-pointer ${
+                    newCatSection === 'food'
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  🍽️ Menu (plats)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewCatSection('bar')}
+                  className={`py-2.5 rounded-2xl text-xs font-black transition-colors cursor-pointer ${
+                    newCatSection === 'bar'
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  🍷 Bar & Alcools
+                </button>
+              </div>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setShowCategoryModal(false)}
