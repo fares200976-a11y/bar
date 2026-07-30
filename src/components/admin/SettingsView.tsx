@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Save, RefreshCw, Database, Cloud, CheckCircle2, Volume2, VolumeX, Play, Square, BellRing, Music, Download, Upload, AlertCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Save, RefreshCw, Database, Cloud, CheckCircle2, Volume2, VolumeX, Play, Square, BellRing, Music, Download, Upload, AlertCircle, ShieldCheck } from 'lucide-react';
 import { RestaurantSettings } from '../../types';
 import { MP3_PRESETS, testAlarmSound, stopContinuousAlarm } from '../../utils/audioAlarm';
 import { store } from '../../services/store';
+import { SecuritySettings } from './SecuritySettings';
 
 interface SettingsViewProps {
   settings: RestaurantSettings;
@@ -145,6 +146,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <Save className="w-4 h-4" />
           <span>{savedSuccess ? 'Modifications Enregistrées !' : 'Enregistrer'}</span>
         </button>
+      </div>
+
+      {/* Section Sécurité — double authentification (par compte) */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <h3 className="font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-rose-500" />
+          <span>Sécurité de mon compte</span>
+        </h3>
+        <SecuritySettings />
       </div>
 
       {/* Main Settings Form */}
