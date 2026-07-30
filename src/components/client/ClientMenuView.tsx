@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Search,
   Flame,
@@ -18,7 +18,9 @@ import {
   Sparkles,
   ShieldCheck,
   QrCode,
-  Filter
+  Filter,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Category, MenuItem, Order, Table, Waiter, RestaurantSettings } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
@@ -55,6 +57,10 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   cartTotal,
 }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
+  const scrollCategories = (dir: 'left' | 'right') => {
+    categoryScrollRef.current?.scrollBy({ left: dir === 'left' ? -220 : 220, behavior: 'smooth' });
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -402,7 +408,24 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       )}
 
       {/* Category Horizontal Slider */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
+      <div className="relative mb-6">
+        <button
+          onClick={() => scrollCategories('left')}
+          className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 items-center justify-center rounded-full bg-white dark:bg-[#1C1C16] border border-[#E5E2DD] dark:border-[#33332A] shadow-md cursor-pointer"
+          aria-label="Défiler à gauche"
+        >
+          <ChevronLeft className="w-4 h-4 text-[#5A5A40] dark:text-[#E2E0D8]" />
+        </button>
+
+        <div
+          ref={categoryScrollRef}
+          onWheel={(e) => {
+            if (e.deltaY !== 0) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+          className="flex items-center gap-2 overflow-x-auto pb-4 scrollbar-none sm:px-9"
+        >
         <button
           onClick={() => setSelectedCategoryId('all')}
           className={`px-4 py-2 rounded-2xl text-xs font-medium whitespace-nowrap transition-all ${
@@ -426,7 +449,17 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             {cat.name}
           </button>
         ))}
+        </div>
+
+        <button
+          onClick={() => scrollCategories('right')}
+          className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 items-center justify-center rounded-full bg-white dark:bg-[#1C1C16] border border-[#E5E2DD] dark:border-[#33332A] shadow-md cursor-pointer"
+          aria-label="Défiler à droite"
+        >
+          <ChevronRight className="w-4 h-4 text-[#5A5A40] dark:text-[#E2E0D8]" />
+        </button>
       </div>
+
 
       {/* Menu Grid */}
       {filteredMenu.length === 0 ? (
