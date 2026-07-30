@@ -29,6 +29,7 @@ export interface Category {
   name: string;
   icon?: string;
   order: number;
+  section: 'food' | 'bar';
 }
 
 export interface MenuItem {
