@@ -264,6 +264,7 @@ function mapTable(row: any): Table {
     assignedWaiterId: row.assigned_waiter_id ?? undefined,
     activeOrderId: row.active_order_id ?? undefined,
     occupiedSince: row.occupied_since ?? undefined,
+    clientName: row.client_name ?? undefined,
   };
 }
 
@@ -641,7 +642,7 @@ export const store = {
   },
 
   // --- TABLES ---
-  async addTable(seats: number = 2): Promise<{ success: boolean; message?: string }> {
+  async addTable(seats: number = 2, clientName?: string): Promise<{ success: boolean; message?: string }> {
     if (state.tables.length >= 500) {
       return { success: false, message: 'Limite de 500 tables atteinte.' };
     }
@@ -654,7 +655,18 @@ export const store = {
       status: 'libre',
       seats,
       access_code: pin,
+      client_name: clientName?.trim() || null,
     });
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  async updateTableClientName(tableId: number, clientName: string): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase
+      .from('restaurant_tables')
+      .update({ client_name: clientName.trim() || null })
+      .eq('id', tableId);
     await fetchAll();
     if (error) return { success: false, message: error.message };
     return { success: true };

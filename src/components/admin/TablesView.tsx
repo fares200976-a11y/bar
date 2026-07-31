@@ -74,6 +74,17 @@ export const TablesView: React.FC<TablesViewProps> = ({
   const [targetTableId, setTargetTableId] = useState<number>(2);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [clientNameDraft, setClientNameDraft] = useState('');
+  const [savingClientName, setSavingClientName] = useState(false);
+
+  useEffect(() => {
+    setClientNameDraft(selectedTable?.clientName || '');
+  }, [selectedTable?.id]);
+
+  const [showAddTableModal, setShowAddTableModal] = useState(false);
+  const [newTableSeats, setNewTableSeats] = useState(2);
+  const [newTableClientName, setNewTableClientName] = useState('');
+  const [isAddingTable, setIsAddingTable] = useState(false);
   const canQuickAdd = currentUser?.role === 'admin' || currentUser?.role === 'manager' || currentUser?.role === 'serveur';
   const canScanBon = currentUser?.role === 'admin';
 
@@ -138,11 +149,10 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
         {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
           <button
-            onClick={async () => {
-              const result = await store.addTable(2);
-              if (!result.success) {
-                alert(result.message || "Impossible d'ajouter une table.");
-              }
+            onClick={() => {
+              setNewTableSeats(2);
+              setNewTableClientName('');
+              setShowAddTableModal(true);
             }}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold text-xs shadow-md transition-all cursor-pointer shrink-0"
           >
@@ -234,6 +244,11 @@ export const TablesView: React.FC<TablesViewProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-xl font-black text-slate-900 dark:text-white">{table.name}</span>
+                  {table.clientName && (
+                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400 truncate max-w-[9rem]">
+                      {table.clientName}
+                    </p>
+                  )}
                   <div className="flex items-center gap-1 mt-0.5 text-xs text-amber-800 dark:text-amber-300 font-mono font-black">
                     <KeyRound className="w-3.5 h-3.5 text-amber-600" />
                     <span>PIN: {table.accessCode || '1001'}</span>
@@ -341,6 +356,34 @@ export const TablesView: React.FC<TablesViewProps> = ({
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Régénérer</span>
                 </button>
+              </div>
+
+              {/* Nom du client */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                  Nom du client :
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={clientNameDraft}
+                    onChange={(e) => setClientNameDraft(e.target.value)}
+                    placeholder="Ex: M. Karim, Famille Benali..."
+                    className="flex-1 bg-slate-50 dark:bg-slate-800 text-sm p-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500/40"
+                  />
+                  <button
+                    onClick={async () => {
+                      setSavingClientName(true);
+                      await store.updateTableClientName(selectedTable.id, clientNameDraft);
+                      setSelectedTable({ ...selectedTable, clientName: clientNameDraft.trim() || undefined });
+                      setSavingClientName(false);
+                    }}
+                    disabled={savingClientName}
+                    className="shrink-0 px-4 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold text-xs disabled:opacity-60 cursor-pointer"
+                  >
+                    {savingClientName ? '...' : 'Enregistrer'}
+                  </button>
+                </div>
               </div>
 
               {/* Status Selector */}
@@ -620,6 +663,67 @@ export const TablesView: React.FC<TablesViewProps> = ({
           onScanned={(code) => onAddItemByBarcode(selectedTable.id, code)}
           onClose={() => setShowScanner(false)}
         />
+      )}
+
+      {/* Modale Ajouter une Table (sièges + nom du client, optionnel) */}
+      {showAddTableModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
+            <h3 className="font-black text-lg text-slate-900 dark:text-white">Nouvelle Table</h3>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                Nombre de places :
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={newTableSeats}
+                onChange={(e) => setNewTableSeats(parseInt(e.target.value) || 1)}
+                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                Nom du client (optionnel) :
+              </label>
+              <input
+                type="text"
+                value={newTableClientName}
+                onChange={(e) => setNewTableClientName(e.target.value)}
+                placeholder="Ex: M. Karim, Famille Benali..."
+                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowAddTableModal(false)}
+                disabled={isAddingTable}
+                className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl font-black text-xs disabled:opacity-50 cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={async () => {
+                  setIsAddingTable(true);
+                  const result = await store.addTable(newTableSeats, newTableClientName);
+                  setIsAddingTable(false);
+                  if (!result.success) {
+                    alert(result.message || "Impossible d'ajouter une table.");
+                    return;
+                  }
+                  setShowAddTableModal(false);
+                }}
+                disabled={isAddingTable}
+                className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-md disabled:opacity-60 cursor-pointer"
+              >
+                {isAddingTable ? 'Création...' : 'Créer la Table'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
