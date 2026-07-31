@@ -1,6 +1,7 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react';
 import { store, playDoubleBeepSound } from './services/store';
-import { fetchOwnProfile, signOut, createStaffAccount, signInWithPin } from './services/auth';
+import { fetchOwnProfile, signOut, createStaffAccount, signInWithPin, listMfaFactors } from './services/auth';
+import { SettingsMfaGate } from './components/admin/SettingsMfaGate';
 import {
   Table,
   MenuItem,
@@ -193,6 +194,13 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
 
+  // Verrou sur l'onglet Paramètres : si ce compte a activé la double
+  // authentification, on redemande le code à 6 chiffres à chaque ouverture de
+  // Paramètres (indépendamment de la connexion normale, qui n'exige rien).
+  const [settingsMfaFactorId, setSettingsMfaFactorId] = useState<string | null>(null);
+  const [settingsUnlocked, setSettingsUnlocked] = useState(false);
+  const [showSettingsGate, setShowSettingsGate] = useState(false);
+
   // Client Cart State
   const [cartItems, setCartItems] = useState<
     Array<{ menuItem: MenuItem; quantity: number; notes?: string }>
@@ -234,6 +242,19 @@ export default function App() {
       setIsAuthLoading(false);
     })();
   }, []);
+
+  // Récupère le facteur MFA du compte connecté (s'il en a activé un), pour
+  // savoir si Paramètres doit être verrouillé. Réinitialise le verrou à
+  // chaque changement de compte (nouvelle connexion = re-verrouillé).
+  useEffect(() => {
+    setSettingsUnlocked(false);
+    setSettingsMfaFactorId(null);
+    if (!currentUser) return;
+    (async () => {
+      const factors = await listMfaFactors();
+      setSettingsMfaFactorId(factors[0]?.id || null);
+    })();
+  }, [currentUser?.id]);
 
   // Detect URL parameters for Table access e.g. /table/3 or ?table=3&code=1001
   // (la connexion serveur par ?waiterPin= est gérée dans l'effet précédent)
@@ -530,7 +551,13 @@ export default function App() {
         /* Staff & Admin Interface Layout */
         <AdminLayout
           activeTab={adminTab}
-          onTabChange={(tab) => setAdminTab(tab)}
+          onTabChange={(tab) => {
+            if (tab === 'settings' && settingsMfaFactorId && !settingsUnlocked) {
+              setShowSettingsGate(true);
+              return;
+            }
+            setAdminTab(tab);
+          }}
           currentUser={currentUser}
           onLogout={() => { signOut(); setCurrentUser(null); setCurrentView('client'); }}
         >
@@ -673,6 +700,19 @@ export default function App() {
           setAdminTab(getDefaultAdminTab(u.role));
         }}
       />
+
+      {/* Verrou Paramètres — demande le code à 6 chiffres avant d'ouvrir l'onglet */}
+      {showSettingsGate && settingsMfaFactorId && (
+        <SettingsMfaGate
+          factorId={settingsMfaFactorId}
+          onUnlock={() => {
+            setSettingsUnlocked(true);
+            setShowSettingsGate(false);
+            setAdminTab('settings');
+          }}
+          onCancel={() => setShowSettingsGate(false)}
+        />
+      )}
     </div>
   );
 }

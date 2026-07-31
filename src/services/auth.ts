@@ -48,21 +48,6 @@ export async function signInWithUsername(username: string, password: string): Pr
     return { success: false, message: 'Identifiant ou mot de passe incorrect.' };
   }
 
-  // Le mot de passe seul suffit pour passer en aal1. Si ce compte a activé la
-  // double authentification, Supabase indique qu'il faut encore monter en
-  // aal2 — on ne complète PAS la connexion ici, on demande le code à 6 chiffres.
-  const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aalData && aalData.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
-    const { data: factorsData } = await supabase.auth.mfa.listFactors();
-    const totpFactor = factorsData?.totp?.[0];
-    return {
-      success: false,
-      needsMfa: true,
-      mfaFactorId: totpFactor?.id,
-      message: 'Code de double authentification requis.',
-    };
-  }
-
   const profile = await fetchOwnProfile();
   if (!profile) {
     await supabase.auth.signOut();
@@ -187,6 +172,28 @@ function mapProfileRowToUser(row: Record<string, unknown>): User {
 // DOUBLE AUTHENTIFICATION (MFA — TOTP via Google Authenticator / Authy...)
 // ----------------------------------------------------------------------------
 
+// Vérifie un code à 6 chiffres pour déverrouiller un écran sensible (ex:
+// Paramètres) sans repasser par tout le flux de connexion — l'utilisateur est
+// déjà connecté, on vérifie juste qu'il a bien son app d'authentification.
+export async function verifyMfaChallengeOnly(factorId: string, code: string): Promise<{ success: boolean; message?: string }> {
+  const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
+  if (challengeError || !challengeData) {
+    return { success: false, message: 'Impossible de générer le défi de vérification.' };
+  }
+
+  const { error: verifyError } = await supabase.auth.mfa.verify({
+    factorId,
+    challengeId: challengeData.id,
+    code: code.trim(),
+  });
+
+  if (verifyError) {
+    return { success: false, message: 'Code incorrect. Réessayez.' };
+  }
+
+  return { success: true };
+}
+
 // Étape 2 de la connexion, quand signInWithUsername a renvoyé needsMfa: true.
 export async function verifyMfaCode(factorId: string, code: string): Promise<AuthResult> {
   const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
@@ -287,4 +294,3 @@ export async function unenrollMfaFactor(factorId: string): Promise<{ success: bo
 export async function cancelMfaEnrollment(factorId: string): Promise<void> {
   await supabase.auth.mfa.unenroll({ factorId });
 }
-// build fix trigger
