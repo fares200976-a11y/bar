@@ -572,14 +572,56 @@ export const store = {
   },
 
   // --- MENU & CATEGORIES (admin/manager — cf. policies categories_write_admin / menu_items_write_admin) ---
-  async addCategory(name: string, icon?: string, section: 'food' | 'bar' = 'food') {
-    await supabase.from('categories').insert({ name, icon, sort_order: state.categories.length + 1, section });
+  async addCategory(name: string, icon?: string, section: 'food' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
+    const { data, error } = await supabase
+      .from('categories')
+      .insert({ name, icon, sort_order: state.categories.length + 1, section })
+      .select('id')
+      .single();
     await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true, id: data.id };
   },
 
-  async deleteCategory(catId: string) {
-    await supabase.from('categories').delete().eq('id', catId);
+  // Envoie une photo (menu papier ou bon d'achat/facture) à l'Edge Function
+  // scan-image, qui utilise une IA vision pour en extraire les produits.
+  async scanImage(
+    mode: 'menu' | 'invoice',
+    imageBase64: string,
+    mimeType: string
+  ): Promise<{ success: boolean; items?: Array<Record<string, unknown>>; message?: string }> {
+    const { data, error } = await supabase.functions.invoke('scan-image', {
+      body: { mode, imageBase64, mimeType },
+    });
+    if (error) {
+      let message = error.message;
+      try {
+        const ctx = (error as { context?: Response }).context;
+        if (ctx && typeof ctx.json === 'function') {
+          const body = await ctx.json();
+          if (body?.error) message = body.error;
+        }
+      } catch {
+        // garde le message générique si la réponse n'est pas du JSON
+      }
+      return { success: false, message };
+    }
+    if (data?.error) {
+      return { success: false, message: data.error };
+    }
+    return { success: true, items: data?.items || [] };
+  },
+
+  async deleteCategory(catId: string): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('categories').delete().eq('id', catId);
     await fetchAll();
+    if (error) {
+      const message = error.code === '23503'
+        ? 'Impossible : cette catégorie contient encore des produits. Supprime ou déplace-les d\'abord.'
+        : error.message;
+      return { success: false, message };
+    }
+    return { success: true };
   },
 
   async addMenuItem(item: Omit<MenuItem, 'id'>) {
