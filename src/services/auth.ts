@@ -287,3 +287,4 @@ export async function unenrollMfaFactor(factorId: string): Promise<{ success: bo
 export async function cancelMfaEnrollment(factorId: string): Promise<void> {
   await supabase.auth.mfa.unenroll({ factorId });
 }
+// build fix trigger
