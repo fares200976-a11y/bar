@@ -671,9 +671,16 @@ export const store = {
     await fetchAll();
   },
 
-  async deleteMenuItem(id: string) {
-    await supabase.from('menu_items').delete().eq('id', id);
+  async deleteMenuItem(id: string): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('menu_items').delete().eq('id', id);
     await fetchAll();
+    if (error) {
+      const message = error.code === '23503'
+        ? "Impossible : ce produit a déjà été commandé au moins une fois (historique protégé). Rends-le plutôt \"indisponible\" si tu ne veux plus le vendre."
+        : error.message;
+      return { success: false, message };
+    }
+    return { success: true };
   },
 
   async toggleItemAvailability(id: string) {
