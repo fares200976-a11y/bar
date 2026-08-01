@@ -18,18 +18,21 @@ import {
   Barcode,
   Table2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Camera
 } from 'lucide-react';
 import { Category, MenuItem, RestaurantSettings } from '../../types';
 import { formatCurrency, DIETARY_LABEL_OPTIONS } from '../../utils/formatters';
 import { PriceTableModal } from './PriceTableModal';
+import { ScanMenuModal } from './ScanMenuModal';
+import { ScanInvoiceModal } from './ScanInvoiceModal';
 
 interface MenuViewProps {
   categories: Category[];
   menu: MenuItem[];
   settings: RestaurantSettings;
   onAddCategory: (name: string, icon?: string, section?: 'food' | 'bar') => void;
-  onDeleteCategory: (id: string) => void;
+  onDeleteCategory: (id: string) => Promise<{ success: boolean; message?: string }>;
   onAddMenuItem: (item: Omit<MenuItem, 'id'>) => void;
   onUpdateMenuItem: (id: string, updates: Partial<MenuItem>) => void;
   onDeleteMenuItem: (id: string) => void;
@@ -52,6 +55,8 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [newCatName, setNewCatName] = useState('');
   const [newCatSection, setNewCatSection] = useState<'food' | 'bar'>('food');
   const [showPriceTable, setShowPriceTable] = useState(false);
+  const [showScanMenu, setShowScanMenu] = useState(false);
+  const [showScanInvoice, setShowScanInvoice] = useState(false);
   const catScrollRef = useRef<HTMLDivElement>(null);
   const scrollCats = (dir: 'left' | 'right') => {
     catScrollRef.current?.scrollBy({ left: dir === 'left' ? -220 : 220, behavior: 'smooth' });
@@ -180,6 +185,22 @@ export const MenuView: React.FC<MenuViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2">
           <button
+            onClick={() => setShowScanMenu(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-2xl font-bold text-xs hover:bg-slate-200 transition-colors"
+          >
+            <Camera className="w-4 h-4 text-blue-500" />
+            <span>Scanner un Menu</span>
+          </button>
+
+          <button
+            onClick={() => setShowScanInvoice(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-2xl font-bold text-xs hover:bg-slate-200 transition-colors"
+          >
+            <Camera className="w-4 h-4 text-amber-500" />
+            <span>Scanner un Bon d'Achat</span>
+          </button>
+
+          <button
             onClick={() => setShowPriceTable(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-2xl font-bold text-xs hover:bg-slate-200 transition-colors"
           >
@@ -237,17 +258,36 @@ export const MenuView: React.FC<MenuViewProps> = ({
         {categories.map((cat) => {
           const count = menu.filter((m) => m.categoryId === cat.id).length;
           return (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCatId(cat.id)}
-              className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${
-                selectedCatId === cat.id
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
-              }`}
-            >
-              {cat.name} ({count})
-            </button>
+            <div key={cat.id} className="relative shrink-0 group">
+              <button
+                onClick={() => setSelectedCatId(cat.id)}
+                className={`px-4 py-2 pr-7 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${
+                  selectedCatId === cat.id
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
+                }`}
+              >
+                {cat.name} ({count})
+              </button>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!confirm(`Supprimer la catégorie "${cat.name}" ?`)) return;
+                  const result = await onDeleteCategory(cat.id);
+                  if (!result.success) {
+                    alert(result.message || 'Suppression impossible.');
+                    return;
+                  }
+                  if (selectedCatId === cat.id) setSelectedCatId('all');
+                }}
+                className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full cursor-pointer ${
+                  selectedCatId === cat.id ? 'text-white/70 hover:text-white' : 'text-slate-400 hover:text-rose-600'
+                }`}
+                title="Supprimer la catégorie"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           );
         })}
         </div>
@@ -642,6 +682,14 @@ export const MenuView: React.FC<MenuViewProps> = ({
           onUpdatePrice={(id, price) => onUpdateMenuItem(id, { price })}
           onClose={() => setShowPriceTable(false)}
         />
+      )}
+
+      {showScanMenu && (
+        <ScanMenuModal categories={categories} onClose={() => setShowScanMenu(false)} />
+      )}
+
+      {showScanInvoice && (
+        <ScanInvoiceModal menu={menu} onClose={() => setShowScanInvoice(false)} />
       )}
     </div>
   );

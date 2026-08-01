@@ -16,12 +16,12 @@ import {
   Clock,
   Bell,
   ScanLine,
-  ShoppingBasket
+  ShoppingBasket,
+  Search
 } from 'lucide-react';
 import { Table, Order, Waiter, RestaurantSettings, TableStatus, User, MenuItem, Category } from '../../types';
 import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel, formatElapsedSince } from '../../utils/formatters';
 import { store } from '../../services/store';
-import { QuickAddProductModal } from './QuickAddProductModal';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface TablesViewProps {
@@ -72,13 +72,17 @@ export const TablesView: React.FC<TablesViewProps> = ({
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [targetTableId, setTargetTableId] = useState<number>(2);
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [clientNameDraft, setClientNameDraft] = useState('');
   const [savingClientName, setSavingClientName] = useState(false);
+  const [productGroupFilter, setProductGroupFilter] = useState<'all' | 'biere' | 'vin' | 'plat' | 'digestif'>('all');
+  const [productSearchFS, setProductSearchFS] = useState('');
+  const [addingItemIdFS, setAddingItemIdFS] = useState<string | null>(null);
 
   useEffect(() => {
     setClientNameDraft(selectedTable?.clientName || '');
+    setProductGroupFilter('all');
+    setProductSearchFS('');
   }, [selectedTable?.id]);
 
   const [showAddTableModal, setShowAddTableModal] = useState(false);
@@ -132,6 +136,40 @@ export const TablesView: React.FC<TablesViewProps> = ({
         setSelectedTable(null);
       }
     }
+  };
+
+  // Classe chaque produit dans un groupe rapide (Bières / Vins / Plats /
+  // Digestifs) pour la navigation par le côté en plein écran.
+  const getItemGroup = (item: MenuItem): 'biere' | 'vin' | 'plat' | 'digestif' | 'autre' => {
+    const cat = categories.find((c) => c.id === item.categoryId);
+    if (!cat) return 'autre';
+    if (cat.section === 'food') return 'plat';
+    const n = cat.name.toLowerCase();
+    if (n.includes('bière') || n.includes('biere')) return 'biere';
+    if (n.includes('vin')) return 'vin';
+    if (n.includes('whisky') || n.includes('whiskey')) return 'digestif';
+    return 'autre';
+  };
+
+  const PRODUCT_GROUPS: Array<{ id: 'all' | 'biere' | 'vin' | 'plat' | 'digestif'; label: string }> = [
+    { id: 'all', label: 'Tout' },
+    { id: 'biere', label: '🍺 Bières' },
+    { id: 'vin', label: '🍷 Vins' },
+    { id: 'plat', label: '🍽️ Plats' },
+    { id: 'digestif', label: '🥃 Digestifs' },
+  ];
+
+  const fullScreenFilteredMenu = selectedTable
+    ? menu
+        .filter((item) => productGroupFilter === 'all' || getItemGroup(item) === productGroupFilter)
+        .filter((item) => item.name.toLowerCase().includes(productSearchFS.trim().toLowerCase()))
+    : [];
+
+  const handleAddProductFS = async (item: MenuItem) => {
+    if (!selectedTable) return;
+    setAddingItemIdFS(item.id);
+    await onAddItemsToTable(selectedTable.id, [{ menuItem: item, quantity: 1 }]);
+    setAddingItemIdFS(null);
   };
 
   return (
@@ -311,39 +349,107 @@ export const TablesView: React.FC<TablesViewProps> = ({
         })}
       </div>
 
-      {/* Selected Table Detail Drawer / Modal */}
+      {/* Table Order Screen — plein écran, remplace l'ancienne petite modale */}
       {selectedTable && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 animate-scale-up">
-            {/* Header */}
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-lg">{selectedTable.name} — Détails & Actions</h3>
-                <p className="text-xs text-slate-300">
-                  Statut : {getTableStatusLabel(selectedTable.status)}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedTable(null)}
-                className="p-2 text-slate-400 hover:text-white rounded-xl transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 flex flex-col">
+          {/* Top bar */}
+          <div className="shrink-0 flex items-center justify-between p-4 bg-slate-900 text-white">
+            <div>
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <span>{selectedTable.name}</span>
+                {selectedTable.clientName && (
+                  <span className="text-rose-400 font-semibold text-sm">— {selectedTable.clientName}</span>
+                )}
+              </h3>
+              <p className="text-xs text-slate-300">Statut : {getTableStatusLabel(selectedTable.status)}</p>
+            </div>
+            <button
+              onClick={() => setSelectedTable(null)}
+              className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Body: sidebar groupes | grille produits | ticket & actions */}
+          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+            {canQuickAdd && (
+              <>
+            {/* Sidebar : groupes rapides Bière / Vin / Plat / Digestifs */}
+            <div className="shrink-0 lg:w-44 flex lg:flex-col gap-2 overflow-x-auto lg:overflow-y-auto p-3 bg-white dark:bg-slate-900 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800">
+              {PRODUCT_GROUPS.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => setProductGroupFilter(g.id)}
+                  className={`shrink-0 lg:w-full text-left px-4 py-3 rounded-2xl text-sm font-black transition-colors cursor-pointer whitespace-nowrap ${
+                    productGroupFilter === g.id
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {g.label}
+                </button>
+              ))}
             </div>
 
-            <div className="p-6 space-y-5">
+            {/* Grille produits filtrée par groupe */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="relative mb-4">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={productSearchFS}
+                  onChange={(e) => setProductSearchFS(e.target.value)}
+                  placeholder="Rechercher un produit..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-rose-500/40"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                {fullScreenFilteredMenu.map((item) => {
+                  const isUnavailable = !item.isAvailable || item.stockQuantity <= 0;
+                  const price = item.isPromo && item.promoPrice != null ? item.promoPrice : item.price;
+                  return (
+                    <button
+                      key={item.id}
+                      disabled={isUnavailable || addingItemIdFS === item.id}
+                      onClick={() => handleAddProductFS(item)}
+                      className={`relative p-3.5 rounded-2xl border text-left transition-all active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                        addingItemIdFS === item.id
+                          ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-400 hover:bg-rose-50/50 dark:hover:bg-rose-950/20'
+                      }`}
+                    >
+                      <p className="text-sm font-extrabold text-slate-900 dark:text-white line-clamp-2 min-h-[2.5rem]">
+                        {item.name}
+                      </p>
+                      <p className="text-sm font-black text-rose-600 dark:text-rose-400 mt-1.5">
+                        {formatCurrency(price, settings.currency)}
+                      </p>
+                    </button>
+                  );
+                })}
+                {fullScreenFilteredMenu.length === 0 && (
+                  <p className="col-span-full text-xs text-slate-400 italic text-center py-10">
+                    Aucun produit trouvé dans ce groupe.
+                  </p>
+                )}
+              </div>
+            </div>
+              </>
+            )}
+
+            {/* Ticket + actions */}
+            <div className="shrink-0 lg:w-96 overflow-y-auto p-4 bg-white dark:bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 space-y-4">
               {/* 4-digit PIN Code Banner */}
               <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/50 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] uppercase font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
                     <KeyRound className="w-3.5 h-3.5" />
-                    <span>Code Sécurité QR (4 Chiffres)</span>
+                    <span>Code Sécurité QR</span>
                   </p>
-                  <p className="text-2xl font-black font-mono text-slate-900 dark:text-white tracking-widest mt-0.5">
+                  <p className="text-xl font-black font-mono text-slate-900 dark:text-white tracking-widest mt-0.5">
                     {selectedTable.accessCode || '1001'}
-                  </p>
-                  <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-0.5">
-                    Régénéré automatiquement à chaque encaissement / libération.
                   </p>
                 </div>
                 <button
@@ -351,10 +457,9 @@ export const TablesView: React.FC<TablesViewProps> = ({
                     const newPin = store.regenerateTablePin(selectedTable.id);
                     setSelectedTable({ ...selectedTable, accessCode: newPin });
                   }}
-                  className="flex items-center gap-1 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-xs"
+                  className="flex items-center gap-1 px-2.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-xs shrink-0 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Régénérer</span>
                 </button>
               </div>
 
@@ -381,7 +486,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
                     disabled={savingClientName}
                     className="shrink-0 px-4 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold text-xs disabled:opacity-60 cursor-pointer"
                   >
-                    {savingClientName ? '...' : 'Enregistrer'}
+                    {savingClientName ? '...' : 'OK'}
                   </button>
                 </div>
               </div>
@@ -399,7 +504,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
                         onUpdateStatus(selectedTable.id, st);
                         setSelectedTable({ ...selectedTable, status: st });
                       }}
-                      className={`py-2 px-3 rounded-xl text-xs font-bold border capitalize transition-all ${
+                      className={`py-2 px-2 rounded-xl text-[11px] font-bold border capitalize transition-all cursor-pointer ${
                         selectedTable.status === st
                           ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                           : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
@@ -414,7 +519,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
               {/* Assign Waiter Dropdown */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-                  Affecter un serveur à cette table :
+                  Serveur assigné :
                 </label>
                 <select
                   value={selectedTable.assignedWaiterId || ''}
@@ -440,9 +545,6 @@ export const TablesView: React.FC<TablesViewProps> = ({
                   <p className="text-xs font-black text-orange-900 dark:text-orange-200 flex items-center gap-1.5">
                     🔔 Nouvelle commande client — en attente de votre validation
                   </p>
-                  <p className="text-[11px] text-orange-700 dark:text-orange-300">
-                    Tant que vous ne l'avez pas confirmée, elle n'est pas visible en cuisine.
-                  </p>
                   <button
                     onClick={() => {
                       const order = getTableActiveOrder(selectedTable.id);
@@ -456,31 +558,17 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 </div>
               )}
 
-              {/* Ajout rapide de produits / scan de bon */}
-              {(canQuickAdd || canScanBon) && (
-                <div className="grid grid-cols-2 gap-3">
-                  {canQuickAdd && (
-                    <button
-                      onClick={() => setShowQuickAdd(true)}
-                      className="flex items-center justify-center gap-2 p-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-md transition-colors cursor-pointer"
-                    >
-                      <ShoppingBasket className="w-4 h-4" />
-                      <span>Ajouter un produit</span>
-                    </button>
-                  )}
-                  {canScanBon && (
-                    <button
-                      onClick={() => setShowScanner(true)}
-                      className="flex items-center justify-center gap-2 p-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black text-xs shadow-md transition-colors cursor-pointer"
-                    >
-                      <ScanLine className="w-4 h-4" />
-                      <span>Scanner un bon</span>
-                    </button>
-                  )}
-                </div>
+              {canScanBon && (
+                <button
+                  onClick={() => setShowScanner(true)}
+                  className="w-full flex items-center justify-center gap-2 p-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black text-xs shadow-md transition-colors cursor-pointer"
+                >
+                  <ScanLine className="w-4 h-4" />
+                  <span>Scanner un bon</span>
+                </button>
               )}
 
-              {/* Active Consumption Breakdown */}
+              {/* Ticket — Consommation Actuelle */}
               {getTableActiveOrder(selectedTable.id) ? (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2">
                   <p className="text-xs font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2">
@@ -509,29 +597,25 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
               {/* Move & Merge Buttons — réservé admin/manager/caissier, pas le serveur */}
               {currentUser?.role !== 'serveur' && (
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  onClick={() => {
-                    setShowMoveModal(true);
-                  }}
-                  disabled={!getTableActiveOrder(selectedTable.id)}
-                  className="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs disabled:opacity-40 transition-colors"
-                >
-                  <MoveRight className="w-4 h-4 text-amber-500" />
-                  <span>Déplacer Commande</span>
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setShowMoveModal(true)}
+                    disabled={!getTableActiveOrder(selectedTable.id)}
+                    className="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs disabled:opacity-40 transition-colors cursor-pointer"
+                  >
+                    <MoveRight className="w-4 h-4 text-amber-500" />
+                    <span>Déplacer</span>
+                  </button>
 
-                <button
-                  onClick={() => {
-                    setShowMergeModal(true);
-                  }}
-                  disabled={!getTableActiveOrder(selectedTable.id)}
-                  className="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs disabled:opacity-40 transition-colors"
-                >
-                  <GitMerge className="w-4 h-4 text-purple-500" />
-                  <span>Fusionner Addition</span>
-                </button>
-              </div>
+                  <button
+                    onClick={() => setShowMergeModal(true)}
+                    disabled={!getTableActiveOrder(selectedTable.id)}
+                    className="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs disabled:opacity-40 transition-colors cursor-pointer"
+                  >
+                    <GitMerge className="w-4 h-4 text-purple-500" />
+                    <span>Fusionner</span>
+                  </button>
+                </div>
               )}
 
               {/* Direct Cashier button — réservé admin/manager/caissier */}
@@ -544,7 +628,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
                     setSelectedTable(null);
                     onOpenCashierForTable(tId);
                   }}
-                  className="w-full bg-rose-600 hover:bg-rose-700 text-white py-3.5 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-500/20"
+                  className="w-full bg-rose-600 hover:bg-rose-700 text-white py-3.5 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-500/20 cursor-pointer"
                 >
                   <Receipt className="w-4 h-4" />
                   <span>Encaisser au POS / Caisse</span>
@@ -554,6 +638,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
           </div>
         </div>
       )}
+
 
       {/* Move Order Modal */}
       {showMoveModal && selectedTable && (
@@ -637,23 +722,6 @@ export const TablesView: React.FC<TablesViewProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* Quick Add Product Modal */}
-      {showQuickAdd && selectedTable && (
-        <QuickAddProductModal
-          tableName={selectedTable.name}
-          categories={categories}
-          menu={menu}
-          settings={settings}
-          onAdd={async (menuItem, quantity) => {
-            const result = await onAddItemsToTable(selectedTable.id, [{ menuItem, quantity }]);
-            if (!result.success) {
-              alert(result.message || "Impossible d'ajouter ce produit.");
-            }
-          }}
-          onClose={() => setShowQuickAdd(false)}
-        />
       )}
 
       {/* Barcode / QR Bon Scanner Modal — admin uniquement */}
