@@ -35,7 +35,7 @@ interface MenuViewProps {
   onDeleteCategory: (id: string) => Promise<{ success: boolean; message?: string }>;
   onAddMenuItem: (item: Omit<MenuItem, 'id'>) => void;
   onUpdateMenuItem: (id: string, updates: Partial<MenuItem>) => void;
-  onDeleteMenuItem: (id: string) => void;
+  onDeleteMenuItem: (id: string) => Promise<{ success: boolean; message?: string }>;
   onToggleAvailability: (id: string) => void;
 }
 
@@ -339,8 +339,14 @@ export const MenuView: React.FC<MenuViewProps> = ({
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => onDeleteMenuItem(item.id)}
-                    className="p-2 bg-rose-600/90 text-white hover:bg-rose-600 rounded-xl transition-colors"
+                    onClick={async () => {
+                      if (!confirm(`Supprimer "${item.name}" ?`)) return;
+                      const result = await onDeleteMenuItem(item.id);
+                      if (!result.success) {
+                        alert(result.message || 'Suppression impossible.');
+                      }
+                    }}
+                    className="p-2 bg-rose-600/90 text-white hover:bg-rose-600 rounded-xl transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
