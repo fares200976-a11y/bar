@@ -95,6 +95,7 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
 
     let count = 0;
     let failCount = 0;
+    let firstErrorMessage = '';
 
     for (let i = 0; i < selectedItems.length; i++) {
       const item = selectedItems[i];
@@ -125,9 +126,12 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
           count++;
         } else {
           failCount++;
+          console.error('Échec import produit', item.name, result.message);
+          if (!firstErrorMessage) firstErrorMessage = result.message || '';
         }
       } else {
         failCount++;
+        console.error('Échec création catégorie pour', item.name, item.category);
       }
 
       setImportProgress({ done: i + 1, total: selectedItems.length });
@@ -137,7 +141,10 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
     await store.refresh();
 
     if (failCount > 0) {
-      setError(`${failCount} produit(s) n'ont pas pu être importés (voir la console pour le détail).`);
+      setError(
+        `${failCount} produit(s) n'ont pas pu être importés.` +
+          (firstErrorMessage ? ` Erreur : ${firstErrorMessage}` : '')
+      );
     }
     setImportedCount(count);
     setStep('done');
