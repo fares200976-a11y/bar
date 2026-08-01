@@ -34,6 +34,7 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
   const [error, setError] = useState('');
   const [items, setItems] = useState<DetectedItem[]>([]);
   const [importedCount, setImportedCount] = useState(0);
+  const [importProgress, setImportProgress] = useState({ done: 0, total: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,41 +87,58 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
     setStep('importing');
     setError('');
 
+    const selectedItems = items.filter((i) => i.selected && i.name.trim());
+    setImportProgress({ done: 0, total: selectedItems.length });
+
     const categoryIdCache = new Map<string, string>();
     categories.forEach((c) => categoryIdCache.set(c.name.toLowerCase().trim(), c.id));
 
     let count = 0;
+    let failCount = 0;
 
-    for (const item of items) {
-      if (!item.selected || !item.name.trim()) continue;
-
+    for (let i = 0; i < selectedItems.length; i++) {
+      const item = selectedItems[i];
       const catKey = item.category.toLowerCase().trim();
       let categoryId = categoryIdCache.get(catKey);
 
       if (!categoryId) {
-        const result = await store.addCategory(item.category.trim() || 'Autre');
+        const result = await store.addCategoryFast(item.category.trim() || 'Autre');
         if (result.success && result.id) {
           categoryId = result.id;
           categoryIdCache.set(catKey, categoryId);
         }
       }
 
-      if (!categoryId) continue;
+      if (categoryId) {
+        const result = await store.addMenuItemFast({
+          categoryId,
+          name: item.name.trim(),
+          description: '',
+          price: item.price,
+          images: ['https://images.unsplash.com/photo-1546069901-ba9599a7e63c'],
+          prepTimeMinutes: 10,
+          isAvailable: true,
+          stockQuantity: 20,
+          allergens: [],
+        });
+        if (result.success) {
+          count++;
+        } else {
+          failCount++;
+        }
+      } else {
+        failCount++;
+      }
 
-      await store.addMenuItem({
-        categoryId,
-        name: item.name.trim(),
-        description: '',
-        price: item.price,
-        images: ['https://images.unsplash.com/photo-1546069901-ba9599a7e63c'],
-        prepTimeMinutes: 10,
-        isAvailable: true,
-        stockQuantity: 20,
-        allergens: [],
-      });
-      count++;
+      setImportProgress({ done: i + 1, total: selectedItems.length });
     }
 
+    // Un seul rechargement complet de l'app, une fois tout l'import terminé.
+    await store.refresh();
+
+    if (failCount > 0) {
+      setError(`${failCount} produit(s) n'ont pas pu être importés (voir la console pour le détail).`);
+    }
     setImportedCount(count);
     setStep('done');
   };
@@ -233,14 +251,29 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
         </div>
 
         {(step === 'review' || step === 'importing') && (
-          <div className="p-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 shrink-0 space-y-2">
+            {step === 'importing' && (
+              <div className="space-y-1.5">
+                <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-rose-600 transition-all"
+                    style={{
+                      width: `${importProgress.total ? (importProgress.done / importProgress.total) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 text-center">
+                  {importProgress.done} / {importProgress.total} produits importés...
+                </p>
+              </div>
+            )}
             <button
               onClick={handleImport}
               disabled={step === 'importing' || items.filter((i) => i.selected).length === 0}
               className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-2xl font-black text-sm shadow-md cursor-pointer"
             >
               {step === 'importing'
-                ? 'Import en cours...'
+                ? 'Import en cours, ne ferme pas cette fenêtre...'
                 : `Importer ${items.filter((i) => i.selected).length} produit(s)`}
             </button>
           </div>

@@ -105,12 +105,13 @@ export const ScanInvoiceModal: React.FC<ScanInvoiceModalProps> = ({ menu, onClos
       if (!line.selected || !line.matchedItemId) continue;
       const current = menu.find((m) => m.id === line.matchedItemId);
       if (!current) continue;
-      await store.updateMenuItem(line.matchedItemId, {
+      const result = await store.updateMenuItemFast(line.matchedItemId, {
         stockQuantity: current.stockQuantity + line.quantity,
       });
-      count++;
+      if (result.success) count++;
     }
 
+    await store.refresh();
     setUpdatedCount(count);
     setStep('done');
   };
