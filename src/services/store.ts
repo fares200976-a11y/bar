@@ -572,6 +572,47 @@ export const store = {
   },
 
   // --- MENU & CATEGORIES (admin/manager — cf. policies categories_write_admin / menu_items_write_admin) ---
+  // Versions "rapides" pour l'import en masse (scan de menu) : pas de
+  // rafraîchissement de toute l'app après CHAQUE ligne — un seul refresh()
+  // à la fin de tout l'import, sinon 40 plats = 40 rechargements complets.
+  async addCategoryFast(name: string, section: 'food' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
+    const { data, error } = await supabase
+      .from('categories')
+      .insert({ name, sort_order: state.categories.length + 1, section })
+      .select('id')
+      .single();
+    if (error) return { success: false, message: error.message };
+    return { success: true, id: data.id };
+  },
+
+  async addMenuItemFast(item: Omit<MenuItem, 'id'>): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('menu_items').insert({
+      category_id: item.categoryId,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      images: item.images,
+      video_url: item.videoUrl,
+      prep_time_minutes: item.prepTimeMinutes,
+      is_available: item.isAvailable,
+      stock_quantity: item.stockQuantity,
+      is_promo: item.isPromo ?? false,
+      promo_price: item.promoPrice,
+      is_recommended: item.isRecommended ?? false,
+      is_spicy: item.isSpicy ?? false,
+      allergens: item.allergens,
+      dietary_labels: item.dietaryLabels || [],
+      translations: item.translations || {},
+      barcode: item.barcode || null,
+    });
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  async refresh() {
+    await fetchAll();
+  },
+
   async addCategory(name: string, icon?: string, section: 'food' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
     const { data, error } = await supabase
       .from('categories')
@@ -645,6 +686,15 @@ export const store = {
       barcode: item.barcode || null,
     });
     await fetchAll();
+  },
+
+  async updateMenuItemFast(id: string, updates: Partial<MenuItem>): Promise<{ success: boolean; message?: string }> {
+    const payload: Record<string, unknown> = {};
+    if (updates.stockQuantity !== undefined) payload.stock_quantity = updates.stockQuantity;
+    if (updates.price !== undefined) payload.price = updates.price;
+    const { error } = await supabase.from('menu_items').update(payload).eq('id', id);
+    if (error) return { success: false, message: error.message };
+    return { success: true };
   },
 
   async updateMenuItem(id: string, updates: Partial<MenuItem>) {
