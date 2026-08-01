@@ -22,6 +22,7 @@ export interface Table {
   assignedWaiterId?: string;
   activeOrderId?: string;
   occupiedSince?: string; // ISO — maintenu automatiquement côté base (trigger)
+  clientName?: string;
 }
 
 export interface Category {
