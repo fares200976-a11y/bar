@@ -618,6 +618,15 @@ export const store = {
   // Envoie un fichier (photo produit ou MP3 d'alarme) vers le stockage
   // Supabase et renvoie son URL publique, utilisable directement comme
   // "images: [url]" sur un produit ou "customAudioUrl" dans les réglages.
+  // Réinitialisation complète du site (menu + historique) — réservée admin,
+  // pour repartir de zéro avec un autre restaurant sans passer par le SQL.
+  async fullResetRestaurant(): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('full_reset_restaurant');
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
   async uploadFile(folder: 'menu' | 'alarms', file: File): Promise<{ success: boolean; url?: string; message?: string }> {
     const ext = file.name.split('.').pop() || 'bin';
     const safeExt = ext.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
@@ -1007,6 +1016,32 @@ export const store = {
   },
 
   // --- BILLS & PAYMENTS ---
+  // Encaisse TOUTES les commandes actives d'une table en une seule facture
+  // (remplace processBillPayment pour l'écran Caisse — une table peut avoir
+  // plusieurs commandes séparées, mais un seul paiement groupé).
+  async processTablePayment(
+    tableId: number,
+    paymentMethod: PaymentMethod,
+    discountAmount = 0,
+    cashReceived?: number,
+    paymentsBreakdown?: PaymentBreakdown[]
+  ): Promise<Bill | null> {
+    const { data, error } = await supabase.rpc('process_table_payment', {
+      p_table_id: tableId,
+      p_payment_method: paymentMethod,
+      p_discount: discountAmount,
+      p_cash_received: cashReceived ?? null,
+      p_breakdown: paymentsBreakdown ?? null,
+    });
+    await fetchAll();
+    if (error || !data) {
+      console.error('processTablePayment error:', error);
+      return null;
+    }
+    const bill = state.bills.find((b) => b.id === data);
+    return bill || null;
+  },
+
   async processBillPayment(
     orderId: string,
     paymentMethod: PaymentMethod,
