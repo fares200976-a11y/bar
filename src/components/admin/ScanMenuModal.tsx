@@ -105,7 +105,20 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
       let categoryId = categoryIdCache.get(catKey);
 
       if (!categoryId) {
-        const result = await store.addCategoryFast(item.category.trim() || 'Autre');
+        const catNameLower = item.category.toLowerCase();
+        const guessedSection: 'food' | 'bar' =
+          catNameLower.includes('bière') ||
+          catNameLower.includes('biere') ||
+          catNameLower.includes('vin') ||
+          catNameLower.includes('whisky') ||
+          catNameLower.includes('whiskey') ||
+          catNameLower.includes('digestif') ||
+          catNameLower.includes('alcool') ||
+          catNameLower.includes('cocktail') ||
+          catNameLower.includes('boisson')
+            ? 'bar'
+            : 'food';
+        const result = await store.addCategoryFast(item.category.trim() || 'Autre', guessedSection);
         if (result.success && result.id) {
           categoryId = result.id;
           categoryIdCache.set(catKey, categoryId);

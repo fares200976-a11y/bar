@@ -143,11 +143,11 @@ export const TablesView: React.FC<TablesViewProps> = ({
   const getItemGroup = (item: MenuItem): 'biere' | 'vin' | 'plat' | 'digestif' | 'autre' => {
     const cat = categories.find((c) => c.id === item.categoryId);
     if (!cat) return 'autre';
-    if (cat.section === 'food') return 'plat';
     const n = cat.name.toLowerCase();
     if (n.includes('bière') || n.includes('biere')) return 'biere';
     if (n.includes('vin')) return 'vin';
-    if (n.includes('whisky') || n.includes('whiskey')) return 'digestif';
+    if (n.includes('whisky') || n.includes('whiskey') || n.includes('digestif')) return 'digestif';
+    if (cat.section === 'food') return 'plat';
     return 'autre';
   };
 
