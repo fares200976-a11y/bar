@@ -135,7 +135,9 @@ export function getTableStatusBadgeClass(status: TableStatus): string {
 }
 
 export function calculateOrderTotals(order: Order, vatRate = 0, serviceRate = 0, discount = 0) {
-  const subtotal = order.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const subtotal = order.items
+    .filter((item) => item.status !== 'annulee')
+    .reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   const vatAmount = (subtotal * vatRate) / 100;
   const serviceAmount = (subtotal * serviceRate) / 100;
   const grandTotal = Math.max(0, subtotal + vatAmount + serviceAmount - discount);

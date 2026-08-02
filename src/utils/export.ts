@@ -25,12 +25,15 @@ export function printThermalReceipt(
   const vatRate = settings?.vatRate ?? 0;
   const serviceRate = settings?.serviceRate ?? 0;
 
-  const subtotal = order.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+  const subtotal = order.items
+    .filter((i) => i.status !== 'annulee')
+    .reduce((s, i) => s + i.unitPrice * i.quantity, 0);
   const vat = bill?.taxAmount ?? (subtotal * vatRate) / 100;
   const service = bill?.serviceAmount ?? (subtotal * serviceRate) / 100;
   const total = bill?.total ?? subtotal + vat + service;
 
   const printedItems = order.items.filter((item) => {
+    if (item.status === 'annulee') return false;
     if (type === 'cuisine') return !isDrinkOrBeerItem(item);
     if (type === 'bar') return isDrinkOrBeerItem(item);
     return true;
