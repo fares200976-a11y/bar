@@ -143,6 +143,32 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Aucun produit détecté sur cette photo.' }, 200);
     }
 
+    // Associe une vraie photo à chaque plat détecté (mode "menu" uniquement),
+    // via Unsplash — optionnel : si la clé n'est pas configurée, on continue
+    // simplement sans photo (le front-end utilisera une image par défaut).
+    const unsplashKey = Deno.env.get('UNSPLASH_ACCESS_KEY');
+    if (mode === 'menu' && unsplashKey) {
+      const withImages = await Promise.all(
+        (parsed as Array<Record<string, unknown>>).map(async (item) => {
+          const query = String(item.name || '').trim();
+          if (!query) return item;
+          try {
+            const searchRes = await fetch(
+              `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + ' food dish')}&per_page=1&orientation=squarish`,
+              { headers: { Authorization: `Client-ID ${unsplashKey}` } }
+            );
+            if (!searchRes.ok) return item;
+            const searchData = await searchRes.json();
+            const imageUrl = searchData?.results?.[0]?.urls?.small;
+            return imageUrl ? { ...item, image: imageUrl } : item;
+          } catch {
+            return item;
+          }
+        })
+      );
+      return jsonResponse({ success: true, items: withImages }, 200);
+    }
+
     return jsonResponse({ success: true, items: parsed }, 200);
   } catch (err) {
     return jsonResponse({ error: (err as Error).message || 'Erreur interne.' }, 500);
