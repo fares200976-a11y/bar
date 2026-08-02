@@ -79,6 +79,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [formIsPromo, setFormIsPromo] = useState(false);
   const [formPromoPrice, setFormPromoPrice] = useState<number>(8);
   const [formIsRecommended, setFormIsRecommended] = useState(false);
+  const [formIsPlatDuJour, setFormIsPlatDuJour] = useState(false);
   const [formIsSpicy, setFormIsSpicy] = useState(false);
   const [formAllergens, setFormAllergens] = useState<string>('');
   const [formDietaryLabels, setFormDietaryLabels] = useState<string[]>([]);
@@ -98,6 +99,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsPromo(false);
     setFormPromoPrice(10);
     setFormIsRecommended(false);
+    setFormIsPlatDuJour(false);
     setFormIsSpicy(false);
     setFormAllergens('Gluten, Lait');
     setFormDietaryLabels([]);
@@ -119,6 +121,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsPromo(Boolean(item.isPromo));
     setFormPromoPrice(item.promoPrice || item.price * 0.8);
     setFormIsRecommended(Boolean(item.isRecommended));
+    setFormIsPlatDuJour(Boolean(item.isPlatDuJour));
     setFormIsSpicy(Boolean(item.isSpicy));
     setFormAllergens(item.allergens.join(', '));
     setFormDietaryLabels(item.dietaryLabels || []);
@@ -140,6 +143,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
       isPromo: formIsPromo,
       promoPrice: formIsPromo ? formPromoPrice : undefined,
       isRecommended: formIsRecommended,
+      isPlatDuJour: formIsPlatDuJour,
       isSpicy: formIsSpicy,
       allergens: formAllergens
         .split(',')
@@ -638,6 +642,16 @@ export const MenuView: React.FC<MenuViewProps> = ({
                     className="rounded text-rose-600 focus:ring-rose-500"
                   />
                   <span>Plat Recommandé</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formIsPlatDuJour}
+                    onChange={(e) => setFormIsPlatDuJour(e.target.checked)}
+                    className="rounded text-rose-600 focus:ring-rose-500"
+                  />
+                  <span>⭐ Plat du Jour (mis en avant sur la page d'accueil client)</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">

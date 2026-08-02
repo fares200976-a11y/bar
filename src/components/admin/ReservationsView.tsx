@@ -8,6 +8,7 @@ interface ReservationsViewProps {
   tables: Table[];
   onAddReservation: (res: Omit<Reservation, 'id'>) => void;
   onCancelReservation: (id: string) => void;
+  onAssignTable: (reservationId: string, tableId: number) => void;
 }
 
 export const ReservationsView: React.FC<ReservationsViewProps> = ({
@@ -15,6 +16,7 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
   tables,
   onAddReservation,
   onCancelReservation,
+  onAssignTable,
 }) => {
   const [showModal, setShowModal] = useState(false);
 
@@ -86,9 +88,33 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
                     <span className="font-extrabold text-slate-900 dark:text-white text-base">
                       {res.clientName}
                     </span>
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                      Table {res.tableId}
-                    </span>
+                    {res.tableId ? (
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                        Table {res.tableId}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                          Non assignée
+                        </span>
+                        <select
+                          defaultValue=""
+                          onChange={(e) => {
+                            if (e.target.value) onAssignTable(res.id, Number(e.target.value));
+                          }}
+                          className="text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1"
+                        >
+                          <option value="" disabled>
+                            Assigner une table...
+                          </option>
+                          {tables.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              Table {t.number}
+                            </option>
+                          ))}
+                        </select>
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 dark:text-slate-400 pt-1">
                     <span className="flex items-center gap-1">
