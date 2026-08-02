@@ -61,7 +61,7 @@ export function formatTimeOnly(isoString: string): string {
 export function getOrderStatusLabel(status: OrderStatus): string {
   switch (status) {
     case 'en_attente_validation':
-      return 'À valider (Serveur)';
+      return 'À valider (Admin)';
     case 'nouvelle':
       return 'Nouvelle';
     case 'en_preparation':
