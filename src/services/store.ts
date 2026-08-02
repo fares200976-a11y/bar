@@ -250,6 +250,7 @@ function mapMenuItem(row: any): MenuItem {
     dietaryLabels: row.dietary_labels || [],
     translations: row.translations || {},
     barcode: row.barcode ?? undefined,
+    isPlatDuJour: row.is_plat_du_jour ?? false,
   };
 }
 
@@ -324,7 +325,7 @@ function mapBill(row: any): Bill {
 function mapReservation(row: any): Reservation {
   return {
     id: row.id,
-    tableId: row.table_id,
+    tableId: row.table_id ?? undefined,
     clientName: row.client_name,
     clientPhone: row.client_phone,
     guestCount: row.guest_count,
@@ -604,6 +605,7 @@ export const store = {
       dietary_labels: item.dietaryLabels || [],
       translations: item.translations || {},
       barcode: item.barcode || null,
+      is_plat_du_jour: item.isPlatDuJour ?? false,
     });
     if (error) return { success: false, message: error.message };
     return { success: true };
@@ -684,6 +686,7 @@ export const store = {
       dietary_labels: item.dietaryLabels || [],
       translations: item.translations || {},
       barcode: item.barcode || null,
+      is_plat_du_jour: item.isPlatDuJour ?? false,
     });
     await fetchAll();
   },
@@ -716,6 +719,7 @@ export const store = {
     if (updates.dietaryLabels !== undefined) payload.dietary_labels = updates.dietaryLabels;
     if (updates.translations !== undefined) payload.translations = updates.translations;
     if (updates.barcode !== undefined) payload.barcode = updates.barcode || null;
+    if (updates.isPlatDuJour !== undefined) payload.is_plat_du_jour = updates.isPlatDuJour;
 
     await supabase.from('menu_items').update(payload).eq('id', id);
     await fetchAll();
@@ -1009,6 +1013,36 @@ export const store = {
   },
 
   // --- RESERVATIONS ---
+  // Demande de réservation envoyée par le client depuis la page d'accueil —
+  // sans table assignée, le staff choisira une table réelle ensuite.
+  async requestReservation(input: {
+    clientName: string;
+    clientPhone: string;
+    guestCount: number;
+    dateTime: string;
+    notes?: string;
+  }): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('reservations').insert({
+      client_name: input.clientName,
+      client_phone: input.clientPhone,
+      guest_count: input.guestCount,
+      date_time: input.dateTime,
+      notes: input.notes || null,
+      status: 'confirmée',
+    });
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  // Le staff assigne une table réelle à une demande de réservation client.
+  async assignReservationTable(reservationId: string, tableId: number): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('reservations').update({ table_id: tableId }).eq('id', reservationId);
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
   async addReservation(res: Omit<Reservation, 'id'>) {
     await supabase.from('reservations').insert({
       table_id: res.tableId,
