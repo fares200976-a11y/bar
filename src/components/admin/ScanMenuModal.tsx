@@ -13,6 +13,7 @@ interface DetectedItem {
   name: string;
   price: number;
   category: string;
+  image?: string;
 }
 
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
@@ -59,6 +60,7 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
         name: String(it.name || ''),
         price: Number(it.price) || 0,
         category: String(it.category || 'Autre'),
+        image: it.image ? String(it.image) : undefined,
       }));
 
       if (detected.length === 0) {
@@ -116,7 +118,7 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
           name: item.name.trim(),
           description: '',
           price: item.price,
-          images: ['https://images.unsplash.com/photo-1546069901-ba9599a7e63c'],
+          images: [item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c'],
           prepTimeMinutes: 10,
           isAvailable: true,
           stockQuantity: 20,
@@ -210,6 +212,11 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
               </p>
               {items.map((item, idx) => (
                 <div key={idx} className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                  {item.image ? (
+                    <img src={item.image} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-lg bg-slate-200 dark:bg-slate-700 shrink-0" />
+                  )}
                   <input
                     type="checkbox"
                     checked={item.selected}
