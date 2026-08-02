@@ -615,6 +615,21 @@ export const store = {
     await fetchAll();
   },
 
+  // Envoie un fichier (photo produit ou MP3 d'alarme) vers le stockage
+  // Supabase et renvoie son URL publique, utilisable directement comme
+  // "images: [url]" sur un produit ou "customAudioUrl" dans les réglages.
+  async uploadFile(folder: 'menu' | 'alarms', file: File): Promise<{ success: boolean; url?: string; message?: string }> {
+    const ext = file.name.split('.').pop() || 'bin';
+    const safeExt = ext.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+    const path = `${folder}/${crypto.randomUUID()}.${safeExt}`;
+
+    const { error } = await supabase.storage.from('uploads').upload(path, file, { upsert: false });
+    if (error) return { success: false, message: error.message };
+
+    const { data } = supabase.storage.from('uploads').getPublicUrl(path);
+    return { success: true, url: data.publicUrl };
+  },
+
   async addCategory(name: string, icon?: string, section: 'food' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
     const { data, error } = await supabase
       .from('categories')
