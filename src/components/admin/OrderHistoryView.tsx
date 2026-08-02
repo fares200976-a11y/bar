@@ -95,7 +95,7 @@ export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({
               ) : (
                 filteredOrders.map((ord) => {
                   const bill = bills.find((b) => b.orderId === ord.id);
-                  const total = ord.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+                  const total = ord.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0);
 
                   return (
                     <tr key={ord.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">

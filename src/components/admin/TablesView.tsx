@@ -115,7 +115,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
   const getTableConsumptionTotal = (tableId: number) => {
     const activeOrd = getTableActiveOrder(tableId);
     if (!activeOrd) return 0;
-    return activeOrd.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    return activeOrd.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0);
   };
 
   const handleMoveSubmit = async () => {
@@ -580,16 +580,36 @@ export const TablesView: React.FC<TablesViewProps> = ({
                   <p className="text-xs font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2">
                     Consommation Actuelle en Direct :
                   </p>
-                  {getTableActiveOrder(selectedTable.id)?.items.map((it) => (
-                    <div key={it.id} className="flex justify-between items-center py-0.5">
-                      <span className="text-sm font-bold text-slate-900 dark:text-white">
-                        {it.quantity}x {it.name}
-                      </span>
-                      <span className="text-xs font-extrabold text-slate-900 dark:text-white">
-                        {formatCurrency(it.unitPrice * it.quantity, settings.currency)}
-                      </span>
-                    </div>
-                  ))}
+                  {getTableActiveOrder(selectedTable.id)?.items.map((it) => {
+                    const isCancelled = it.status === 'annulee';
+                    return (
+                      <div key={it.id} className={`flex justify-between items-center py-0.5 gap-2 ${isCancelled ? 'opacity-50' : ''}`}>
+                        <span className={`text-sm font-bold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
+                          {it.quantity}x {it.name}
+                          {isCancelled && <span className="ml-1.5 text-rose-500 font-bold text-xs">(Annulé)</span>}
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-xs font-extrabold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
+                            {formatCurrency(it.unitPrice * it.quantity, settings.currency)}
+                          </span>
+                          {!isCancelled && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                            <button
+                              onClick={async () => {
+                                const order = getTableActiveOrder(selectedTable.id);
+                                if (!order) return;
+                                if (!confirm(`Annuler "${it.name}" ? Le client ne sera pas facturé pour cet article.`)) return;
+                                await store.updateOrderItemStatus(order.id, it.id, 'annulee');
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title="Annuler cet article"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                   <div className="flex justify-between text-xs font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-700">
                     <span>Total Consommations</span>
                     <span className="text-rose-600 dark:text-rose-400">

@@ -253,7 +253,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               {activeOrd && (
                 <p className={`text-[11px] font-extrabold mt-0.5 ${isSelected ? 'text-white' : 'text-purple-600 dark:text-purple-400'}`}>
                   {formatCurrency(
-                    activeOrd.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0),
+                    activeOrd.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0),
                     settings.currency
                   )}
                 </p>

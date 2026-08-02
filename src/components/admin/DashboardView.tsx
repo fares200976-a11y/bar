@@ -122,7 +122,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const waiterSalesMap: Record<string, number> = {};
   confirmedOrders.forEach((o) => {
     if (o.waiterId) {
-      const total = o.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+      const total = o.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0);
       waiterSalesMap[o.waiterId] = (waiterSalesMap[o.waiterId] || 0) + total;
     }
   });
@@ -159,7 +159,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       Statut: o.status,
       Date: new Date(o.createdAt).toLocaleTimeString('fr-FR'),
       Total: formatCurrency(
-        o.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0),
+        o.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0),
         settings.currency
       ),
     }));
@@ -173,7 +173,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       Statut: o.status,
       'Date & Heure': new Date(o.createdAt).toLocaleString('fr-FR'),
       Articles: o.items.map((i) => `${i.quantity}x ${i.name}`).join(', '),
-      Total: o.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0),
+      Total: o.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0),
     }));
     exportToExcel('Rapport_RestoBar', 'Commandes', exportData);
   };
