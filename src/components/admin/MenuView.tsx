@@ -19,13 +19,15 @@ import {
   Table2,
   ChevronLeft,
   ChevronRight,
-  Camera
+  Camera,
+  Upload
 } from 'lucide-react';
 import { Category, MenuItem, RestaurantSettings } from '../../types';
 import { formatCurrency, DIETARY_LABEL_OPTIONS } from '../../utils/formatters';
 import { PriceTableModal } from './PriceTableModal';
 import { ScanMenuModal } from './ScanMenuModal';
 import { ScanInvoiceModal } from './ScanInvoiceModal';
+import { store } from '../../services/store';
 
 interface MenuViewProps {
   categories: Category[];
@@ -58,6 +60,22 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [showScanMenu, setShowScanMenu] = useState(false);
   const [showScanInvoice, setShowScanInvoice] = useState(false);
   const catScrollRef = useRef<HTMLDivElement>(null);
+  const imageUploadRef = useRef<HTMLInputElement>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  const handleImageFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingImage(true);
+    const result = await store.uploadFile('menu', file);
+    setIsUploadingImage(false);
+    if (!result.success || !result.url) {
+      alert(result.message || "Échec de l'envoi de la photo.");
+      return;
+    }
+    setFormImages([result.url]);
+    e.target.value = '';
+  };
   const scrollCats = (dir: 'left' | 'right') => {
     catScrollRef.current?.scrollBy({ left: dir === 'left' ? -220 : 220, behavior: 'smooth' });
   };
@@ -558,13 +576,35 @@ export const MenuView: React.FC<MenuViewProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300">URL Photo Principale (Cloudinary/Unsplash) :</label>
-                <input
-                  type="text"
-                  value={formImages[0] || ''}
-                  onChange={(e) => setFormImages([e.target.value])}
-                  className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
-                />
+                <label className="font-bold text-slate-700 dark:text-slate-300">Photo du Produit :</label>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="text"
+                    value={formImages[0] || ''}
+                    onChange={(e) => setFormImages([e.target.value])}
+                    placeholder="URL ou uploade une photo →"
+                    className="flex-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
+                  />
+                  <input
+                    ref={imageUploadRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageFileSelected}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => imageUploadRef.current?.click()}
+                    disabled={isUploadingImage}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold text-xs disabled:opacity-60 cursor-pointer"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{isUploadingImage ? '...' : 'Uploader'}</span>
+                  </button>
+                </div>
+                {formImages[0] && (
+                  <img src={formImages[0]} alt="" className="w-16 h-16 rounded-xl object-cover mt-2 border border-slate-200 dark:border-slate-700" />
+                )}
               </div>
 
               <div className="sm:col-span-2">

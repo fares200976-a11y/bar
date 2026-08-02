@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Settings as SettingsIcon, Save, RefreshCw, Database, Cloud, CheckCircle2, Volume2, VolumeX, Play, Square, BellRing, Music, Download, Upload, AlertCircle, ShieldCheck } from 'lucide-react';
 import { RestaurantSettings } from '../../types';
 import { MP3_PRESETS, testAlarmSound, stopContinuousAlarm } from '../../utils/audioAlarm';
@@ -82,6 +82,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Audio preference states
   const [alarmSoundType, setAlarmSoundType] = useState(settings.alarmSoundType || 'mp3_alarm_clock');
   const [customAudioUrl, setCustomAudioUrl] = useState(settings.customAudioUrl || '');
+  const audioUploadRef = useRef<HTMLInputElement>(null);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+
+  const handleAudioFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingAudio(true);
+    const result = await store.uploadFile('alarms', file);
+    setIsUploadingAudio(false);
+    if (!result.success || !result.url) {
+      alert(result.message || "Échec de l'envoi du fichier audio.");
+      return;
+    }
+    setCustomAudioUrl(result.url);
+    e.target.value = '';
+  };
   const [enableLoopAlarm, setEnableLoopAlarm] = useState(settings.enableLoopAlarm !== false);
   const [alarmVolume, setAlarmVolume] = useState(settings.alarmVolume ?? 0.8);
   const [isPlayingTest, setIsPlayingTest] = useState(false);
@@ -389,14 +405,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           {alarmSoundType === 'custom_mp3' && (
             <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300">Lien URL du Fichier MP3 Personnalisé :</label>
-              <input
-                type="url"
-                placeholder="https://exemple.com/mon_son_alarme.mp3"
-                value={customAudioUrl}
-                onChange={(e) => setCustomAudioUrl(e.target.value)}
-                className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 font-mono text-xs"
-              />
+              <label className="font-bold text-slate-700 dark:text-slate-300">Fichier MP3 Personnalisé :</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="url"
+                  placeholder="URL ou uploade un MP3 →"
+                  value={customAudioUrl}
+                  onChange={(e) => setCustomAudioUrl(e.target.value)}
+                  className="flex-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 font-mono text-xs"
+                />
+                <input
+                  ref={audioUploadRef}
+                  type="file"
+                  accept="audio/mpeg,audio/mp3,.mp3"
+                  onChange={handleAudioFileSelected}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => audioUploadRef.current?.click()}
+                  disabled={isUploadingAudio}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold text-xs disabled:opacity-60"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>{isUploadingAudio ? '...' : 'Uploader'}</span>
+                </button>
+              </div>
             </div>
           )}
 
