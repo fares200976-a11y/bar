@@ -40,7 +40,7 @@ export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({
   };
 
 
-  const total = order.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+  const total = order.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0);
 
   const steps = [
     { key: 'en_attente_validation', label: 'Envoyée', desc: 'En attente de validation' },
@@ -127,16 +127,20 @@ export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({
             <p className="text-xs font-bold text-slate-900 dark:text-white pb-2 border-b border-slate-200 dark:border-slate-700">
               Plats commandés :
             </p>
-            {order.items.map((item) => (
-              <div key={item.id} className="flex items-center justify-between text-xs py-1">
-                <span className="text-slate-800 dark:text-slate-200 font-medium">
-                  {item.quantity}x {item.name}
-                </span>
-                <span className="font-extrabold text-slate-900 dark:text-white">
-                  {formatCurrency(item.unitPrice * item.quantity, settings.currency)}
-                </span>
-              </div>
-            ))}
+            {order.items.map((item) => {
+              const isCancelled = item.status === 'annulee';
+              return (
+                <div key={item.id} className={`flex items-center justify-between text-xs py-1 ${isCancelled ? 'opacity-50' : ''}`}>
+                  <span className={`text-slate-800 dark:text-slate-200 font-medium ${isCancelled ? 'line-through' : ''}`}>
+                    {item.quantity}x {item.name}
+                    {isCancelled && <span className="ml-1.5 text-rose-500 font-bold">(Annulé)</span>}
+                  </span>
+                  <span className={`font-extrabold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
+                    {formatCurrency(item.unitPrice * item.quantity, settings.currency)}
+                  </span>
+                </div>
+              );
+            })}
             <div className="flex items-center justify-between text-xs font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-700">
               <span>Total Produits</span>
               <span className="text-rose-600 dark:text-rose-400">{formatCurrency(total, settings.currency)}</span>
