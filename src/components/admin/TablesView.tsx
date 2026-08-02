@@ -539,22 +539,28 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 </select>
               </div>
 
-              {/* Commande en attente de validation par le serveur */}
+              {/* Commande en attente de validation admin */}
               {getTableActiveOrder(selectedTable.id)?.status === 'en_attente_validation' && (
                 <div className="p-4 rounded-2xl bg-orange-50 dark:bg-orange-950/40 border-2 border-orange-400 dark:border-orange-800 space-y-3">
                   <p className="text-xs font-black text-orange-900 dark:text-orange-200 flex items-center gap-1.5">
-                    🔔 Nouvelle commande client — en attente de votre validation
+                    🔔 Nouvelle commande — en attente de validation
                   </p>
-                  <button
-                    onClick={() => {
-                      const order = getTableActiveOrder(selectedTable.id);
-                      if (order) onConfirmOrder(order.id);
-                    }}
-                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30 transition-colors cursor-pointer"
-                  >
-                    <UserCheck className="w-4 h-4" />
-                    <span>Confirmer & Envoyer en Cuisine</span>
-                  </button>
+                  {currentUser?.role === 'admin' || currentUser?.role === 'manager' ? (
+                    <button
+                      onClick={() => {
+                        const order = getTableActiveOrder(selectedTable.id);
+                        if (order) onConfirmOrder(order.id);
+                      }}
+                      className="w-full bg-orange-600 hover:bg-orange-700 text-white py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30 transition-colors cursor-pointer"
+                    >
+                      <UserCheck className="w-4 h-4" />
+                      <span>Confirmer & Envoyer en Cuisine</span>
+                    </button>
+                  ) : (
+                    <p className="text-xs font-bold text-orange-800 dark:text-orange-300 text-center py-1">
+                      En attente de validation par l'admin — pas d'action de ta part.
+                    </p>
+                  )}
                 </div>
               )}
 
