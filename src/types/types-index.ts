@@ -22,6 +22,7 @@ export interface Table {
   assignedWaiterId?: string;
   activeOrderId?: string;
   occupiedSince?: string; // ISO — maintenu automatiquement côté base (trigger)
+  clientName?: string;
 }
 
 export interface Category {
@@ -29,6 +30,7 @@ export interface Category {
   name: string;
   icon?: string;
   order: number;
+  section: 'food' | 'bar';
 }
 
 export interface MenuItem {
@@ -50,6 +52,7 @@ export interface MenuItem {
   dietaryLabels?: string[]; // e.g., ['Végétarien', 'Vegan', 'Sans Gluten', 'Fait Maison']
   translations?: Record<string, { name?: string; description?: string }>; // ex: { en: { name, description } }
   barcode?: string; // code-barres / QR du bon, utilisé pour l'ajout auto à l'addition (admin uniquement)
+  isPlatDuJour?: boolean; // mis en avant sur la page d'accueil client
 }
 
 export interface OrderItemOption {
@@ -124,7 +127,7 @@ export interface Bill {
 
 export interface Reservation {
   id: string;
-  tableId: number;
+  tableId?: number; // absent tant que le staff n'a pas assigné de table (demande client)
   clientName: string;
   clientPhone: string;
   guestCount: number;
