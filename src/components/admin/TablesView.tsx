@@ -107,15 +107,23 @@ export const TablesView: React.FC<TablesViewProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Helper to calculate total consumption for table
-  const getTableActiveOrder = (tableId: number) => {
-    return orders.find((o) => o.tableId === tableId && o.status !== 'terminee' && o.status !== 'annulee');
+  // Une table peut désormais avoir PLUSIEURS commandes séparées en même temps
+  // (une par passage de commande) — on les regroupe pour l'affichage.
+  const getTableConfirmedOrders = (tableId: number) => {
+    return orders.filter(
+      (o) => o.tableId === tableId && o.status !== 'terminee' && o.status !== 'annulee' && o.status !== 'en_attente_validation'
+    );
+  };
+
+  const getTablePendingOrders = (tableId: number) => {
+    return orders.filter((o) => o.tableId === tableId && o.status === 'en_attente_validation');
   };
 
   const getTableConsumptionTotal = (tableId: number) => {
-    const activeOrd = getTableActiveOrder(tableId);
-    if (!activeOrd) return 0;
-    return activeOrd.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    return getTableConfirmedOrders(tableId)
+      .flatMap((o) => o.items)
+      .filter((i) => i.status !== 'annulee')
+      .reduce((s, i) => s + i.unitPrice * i.quantity, 0);
   };
 
   const handleMoveSubmit = async () => {
@@ -158,6 +166,9 @@ export const TablesView: React.FC<TablesViewProps> = ({
     { id: 'plat', label: '🍽️ Plats' },
     { id: 'digestif', label: '🥃 Digestifs' },
   ];
+
+  const selectedTablePendingOrders = selectedTable ? getTablePendingOrders(selectedTable.id) : [];
+  const selectedTableConfirmedOrders = selectedTable ? getTableConfirmedOrders(selectedTable.id) : [];
 
   const fullScreenFilteredMenu = selectedTable
     ? menu
@@ -238,17 +249,18 @@ export const TablesView: React.FC<TablesViewProps> = ({
       {/* Tables Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
         {tables.map((table) => {
-          const activeOrd = getTableActiveOrder(table.id);
+          const confirmedOrders = getTableConfirmedOrders(table.id);
+          const pendingOrdersForTable = getTablePendingOrders(table.id);
           const totalConsumption = getTableConsumptionTotal(table.id);
           const assignedWaiter = waiters.find((w) => w.id === table.assignedWaiterId);
 
           // Check if table needs flashing/blinking attention
           const activeAlarm = store.getState().activeAlarm;
           const isAlarming = activeAlarm?.tableId === table.id;
-          const hasCall = activeOrd?.callWaiterRequest || activeOrd?.requestBill;
-          const isPendingValidation = activeOrd?.status === 'en_attente_validation';
-          const isNewOrder = activeOrd?.status === 'nouvelle';
-          const isNewlyOccupied = table.status === 'occupee' && (!activeOrd || activeOrd.status === 'nouvelle');
+          const hasCall = confirmedOrders.some((o) => o.callWaiterRequest || o.requestBill);
+          const isPendingValidation = pendingOrdersForTable.length > 0;
+          const isNewOrder = confirmedOrders.some((o) => o.status === 'nouvelle');
+          const isNewlyOccupied = table.status === 'occupee' && (confirmedOrders.length === 0 || isNewOrder);
           const shouldBlink = isAlarming || hasCall || isPendingValidation || isNewOrder || isNewlyOccupied;
 
           return (
@@ -307,9 +319,9 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
                   {formatCurrency(totalConsumption, settings.currency)}
                 </p>
-                {activeOrd && (
+                {confirmedOrders.length > 0 && (
                   <p className="text-xs text-rose-600 dark:text-rose-400 font-black mt-1">
-                    {activeOrd.items.length} article(s) • Cmd #{activeOrd.orderNumber}
+                    {confirmedOrders.flatMap((o) => o.items).length} article(s) • {confirmedOrders.length} commande(s)
                   </p>
                 )}
               </div>
@@ -539,22 +551,23 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 </select>
               </div>
 
-              {/* Commande en attente de validation admin */}
-              {getTableActiveOrder(selectedTable.id)?.status === 'en_attente_validation' && (
+              {/* Commande(s) en attente de validation admin */}
+              {selectedTablePendingOrders.length > 0 && (
                 <div className="p-4 rounded-2xl bg-orange-50 dark:bg-orange-950/40 border-2 border-orange-400 dark:border-orange-800 space-y-3">
                   <p className="text-xs font-black text-orange-900 dark:text-orange-200 flex items-center gap-1.5">
-                    🔔 Nouvelle commande — en attente de validation
+                    🔔 {selectedTablePendingOrders.length} nouvelle(s) commande(s) — en attente de validation
                   </p>
                   {currentUser?.role === 'admin' || currentUser?.role === 'manager' ? (
                     <button
-                      onClick={() => {
-                        const order = getTableActiveOrder(selectedTable.id);
-                        if (order) onConfirmOrder(order.id);
+                      onClick={async () => {
+                        for (const o of selectedTablePendingOrders) {
+                          await onConfirmOrder(o.id);
+                        }
                       }}
                       className="w-full bg-orange-600 hover:bg-orange-700 text-white py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30 transition-colors cursor-pointer"
                     >
                       <UserCheck className="w-4 h-4" />
-                      <span>Confirmer & Envoyer en Cuisine</span>
+                      <span>Confirmer & Envoyer en Cuisine ({selectedTablePendingOrders.length})</span>
                     </button>
                   ) : (
                     <p className="text-xs font-bold text-orange-800 dark:text-orange-300 text-center py-1">
@@ -574,42 +587,45 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 </button>
               )}
 
-              {/* Ticket — Consommation Actuelle */}
-              {getTableActiveOrder(selectedTable.id) ? (
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2">
+              {/* Ticket — Consommation Actuelle (toutes commandes confirmées de la table) */}
+              {selectedTableConfirmedOrders.length > 0 ? (
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-3">
                   <p className="text-xs font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2">
                     Consommation Actuelle en Direct :
                   </p>
-                  {getTableActiveOrder(selectedTable.id)?.items.map((it) => {
-                    const isCancelled = it.status === 'annulee';
-                    return (
-                      <div key={it.id} className={`flex justify-between items-center py-0.5 gap-2 ${isCancelled ? 'opacity-50' : ''}`}>
-                        <span className={`text-sm font-bold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
-                          {it.quantity}x {it.name}
-                          {isCancelled && <span className="ml-1.5 text-rose-500 font-bold text-xs">(Annulé)</span>}
-                        </span>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className={`text-xs font-extrabold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
-                            {formatCurrency(it.unitPrice * it.quantity, settings.currency)}
-                          </span>
-                          {!isCancelled && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
-                            <button
-                              onClick={async () => {
-                                const order = getTableActiveOrder(selectedTable.id);
-                                if (!order) return;
-                                if (!confirm(`Annuler "${it.name}" ? Le client ne sera pas facturé pour cet article.`)) return;
-                                await store.updateOrderItemStatus(order.id, it.id, 'annulee');
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                              title="Annuler cet article"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {selectedTableConfirmedOrders.map((order) => (
+                    <div key={order.id} className="space-y-1">
+                      <p className="text-[10px] font-black text-slate-400 uppercase">Commande #{order.orderNumber}</p>
+                      {order.items.map((it) => {
+                        const isCancelled = it.status === 'annulee';
+                        return (
+                          <div key={it.id} className={`flex justify-between items-center py-0.5 gap-2 ${isCancelled ? 'opacity-50' : ''}`}>
+                            <span className={`text-sm font-bold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
+                              {it.quantity}x {it.name}
+                              {isCancelled && <span className="ml-1.5 text-rose-500 font-bold text-xs">(Annulé)</span>}
+                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`text-xs font-extrabold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
+                                {formatCurrency(it.unitPrice * it.quantity, settings.currency)}
+                              </span>
+                              {!isCancelled && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm(`Annuler "${it.name}" ? Le client ne sera pas facturé pour cet article.`)) return;
+                                    await store.updateOrderItemStatus(order.id, it.id, 'annulee');
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                  title="Annuler cet article"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                   <div className="flex justify-between text-xs font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-700">
                     <span>Total Consommations</span>
                     <span className="text-rose-600 dark:text-rose-400">
@@ -626,7 +642,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setShowMoveModal(true)}
-                    disabled={!getTableActiveOrder(selectedTable.id)}
+                    disabled={selectedTableConfirmedOrders.length === 0}
                     className="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs disabled:opacity-40 transition-colors cursor-pointer"
                   >
                     <MoveRight className="w-4 h-4 text-amber-500" />
@@ -635,7 +651,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
                   <button
                     onClick={() => setShowMergeModal(true)}
-                    disabled={!getTableActiveOrder(selectedTable.id)}
+                    disabled={selectedTableConfirmedOrders.length === 0}
                     className="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs disabled:opacity-40 transition-colors cursor-pointer"
                   >
                     <GitMerge className="w-4 h-4 text-purple-500" />
@@ -645,9 +661,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
               )}
 
               {/* Direct Cashier button — réservé admin/manager/caissier */}
-              {currentUser?.role !== 'serveur' &&
-                getTableActiveOrder(selectedTable.id) &&
-                getTableActiveOrder(selectedTable.id)?.status !== 'en_attente_validation' && (
+              {currentUser?.role !== 'serveur' && selectedTableConfirmedOrders.length > 0 && (
                 <button
                   onClick={() => {
                     const tId = selectedTable.id;

@@ -14,7 +14,7 @@ import {
   ShoppingBasket,
 } from 'lucide-react';
 import { Bill, Category, MenuItem, Order, PaymentBreakdown, PaymentMethod, RestaurantSettings, Table } from '../../types';
-import { calculateOrderTotals, formatCurrency } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/formatters';
 import { printThermalReceipt } from '../../utils/export';
 import { store } from '../../services/store';
 import { NumericKeypad } from './NumericKeypad';
@@ -30,7 +30,7 @@ interface CashierViewProps {
     items: Array<{ menuItem: MenuItem; quantity: number }>
   ) => Promise<{ success: boolean; message?: string }>;
   onProcessPayment: (
-    orderId: string,
+    tableId: number,
     paymentMethod: PaymentMethod,
     discountAmount?: number,
     cashReceived?: number,
@@ -59,18 +59,30 @@ export const CashierView: React.FC<CashierViewProps> = ({
   const [productSearch, setProductSearch] = useState('');
   const [addingItemId, setAddingItemId] = useState<string | null>(null);
 
-  // Une commande pas encore confirmée par le serveur ne doit pas être encaissable.
-  const activeOrder = orders.find(
-    (o) =>
-      o.tableId === selectedTableId &&
-      o.status !== 'terminee' &&
-      o.status !== 'annulee' &&
-      o.status !== 'en_attente_validation'
+  // Une table peut désormais avoir PLUSIEURS commandes actives séparées —
+  // on les regroupe toutes pour l'affichage et l'encaissement (un seul total).
+  const tableOrders = orders.filter(
+    (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee' && o.status !== 'en_attente_validation'
   );
+  const pendingOrders = orders.filter(
+    (o) => o.tableId === selectedTableId && o.status === 'en_attente_validation'
+  );
+  const allItems = tableOrders.flatMap((o) => o.items);
+  const hasActiveOrders = tableOrders.length > 0;
 
-  const { subtotal, vatAmount, serviceAmount, grandTotal } = activeOrder
-    ? calculateOrderTotals(activeOrder, settings.vatRate, settings.serviceRate, discountInput)
-    : { subtotal: 0, vatAmount: 0, serviceAmount: 0, grandTotal: 0 };
+  const subtotal = allItems.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+  const vatAmount = Math.round((subtotal * settings.vatRate) / 100 * 100) / 100;
+  const serviceAmount = Math.round((subtotal * settings.serviceRate) / 100 * 100) / 100;
+  const grandTotal = Math.max(0, subtotal + vatAmount + serviceAmount - discountInput);
+
+  // Objet "commande combinée" — uniquement pour l'impression du ticket, qui a
+  // juste besoin d'une liste d'articles et d'un numéro de table/commande.
+  const combinedOrderForReceipt: Order | null = hasActiveOrders
+    ? {
+        ...tableOrders[0],
+        items: allItems,
+      }
+    : null;
 
   const cashNum = parseFloat(cashReceivedInput.replace(',', '.')) || 0;
   const changeToGive = Math.max(0, cashNum - grandTotal);
@@ -134,7 +146,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
   };
 
   const handlePay = async () => {
-    if (!activeOrder) return;
+    if (!hasActiveOrders) return;
 
     const splitBreakdowns: PaymentBreakdown[] =
       paymentMethod === 'partagé'
@@ -146,7 +158,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
     setIsPaying(true);
     const bill = await onProcessPayment(
-      activeOrder.id,
+      selectedTableId,
       paymentMethod,
       discountInput,
       paymentMethod === 'espèces' ? cashNum : undefined,
@@ -154,8 +166,8 @@ export const CashierView: React.FC<CashierViewProps> = ({
     );
     setIsPaying(false);
 
-    if (bill) {
-      setLastProcessedBill({ bill, order: activeOrder });
+    if (bill && combinedOrderForReceipt) {
+      setLastProcessedBill({ bill, order: combinedOrderForReceipt });
       setDiscountInput(0);
       setCashReceivedInput('');
     }
@@ -228,13 +240,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
       {/* Bandeau tables — sélection rapide façon "N° table" */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {tables.map((table) => {
-          const activeOrd = orders.find(
+          const tableActiveOrders = orders.filter(
             (o) =>
               o.tableId === table.id &&
               o.status !== 'terminee' &&
               o.status !== 'annulee' &&
               o.status !== 'en_attente_validation'
           );
+          const activeOrd = tableActiveOrders.length > 0;
           const isSelected = selectedTableId === table.id;
 
           return (
@@ -253,7 +266,10 @@ export const CashierView: React.FC<CashierViewProps> = ({
               {activeOrd && (
                 <p className={`text-[11px] font-extrabold mt-0.5 ${isSelected ? 'text-white' : 'text-purple-600 dark:text-purple-400'}`}>
                   {formatCurrency(
-                    activeOrd.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0),
+                    tableActiveOrders
+                      .flatMap((o) => o.items)
+                      .filter((i) => i.status !== 'annulee')
+                      .reduce((s, i) => s + i.unitPrice * i.quantity, 0),
                     settings.currency
                   )}
                 </p>
@@ -267,13 +283,18 @@ export const CashierView: React.FC<CashierViewProps> = ({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
         {/* ---------------- Colonne Ticket ---------------- */}
         <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-          {!activeOrder ? (
+          {!hasActiveOrders ? (
             <div className="text-center py-16 text-slate-400 space-y-2 m-auto">
               <Receipt className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700" />
               <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
                 Table {selectedTableId} : Aucune addition en cours
               </p>
               <p className="text-xs text-slate-400">Ajoutez un produit depuis la grille pour démarrer.</p>
+              {pendingOrders.length > 0 && (
+                <p className="text-[11px] text-orange-500 font-bold">
+                  {pendingOrders.length} commande(s) en attente de validation admin.
+                </p>
+              )}
             </div>
           ) : (
             <>
@@ -283,11 +304,11 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     Addition Table {selectedTableId}
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Commande #{activeOrder.orderNumber} • {activeOrder.items.length} article(s)
+                    {tableOrders.length} commande(s) • {allItems.length} article(s) au total
                   </p>
                 </div>
                 <button
-                  onClick={() => printThermalReceipt('addition', activeOrder, undefined, settings)}
+                  onClick={() => combinedOrderForReceipt && printThermalReceipt('addition', combinedOrderForReceipt, undefined, settings)}
                   className="flex items-center gap-1.5 px-2.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl text-[11px] font-bold transition-colors shrink-0"
                 >
                   <Printer className="w-3.5 h-3.5" />
@@ -295,19 +316,28 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 </button>
               </div>
 
-              {/* Liste des articles */}
-              <div className="space-y-1.5 py-3 flex-1 overflow-y-auto min-h-[140px] max-h-72">
-                {activeOrder.items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50"
-                  >
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {item.quantity}x {item.name}
-                    </span>
-                    <span className="font-extrabold text-slate-900 dark:text-white shrink-0 pl-2">
-                      {formatCurrency(item.unitPrice * item.quantity, settings.currency)}
-                    </span>
+              {/* Liste des articles — regroupés par commande */}
+              <div className="space-y-3 py-3 flex-1 overflow-y-auto min-h-[140px] max-h-72">
+                {tableOrders.map((ord) => (
+                  <div key={ord.id} className="space-y-1">
+                    <p className="text-[10px] font-black text-slate-400 uppercase">Commande #{ord.orderNumber}</p>
+                    {ord.items.map((item) => {
+                      const isCancelled = item.status === 'annulee';
+                      return (
+                        <div
+                          key={item.id}
+                          className={`flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 ${isCancelled ? 'opacity-50' : ''}`}
+                        >
+                          <span className={`font-bold text-slate-800 dark:text-slate-200 ${isCancelled ? 'line-through' : ''}`}>
+                            {item.quantity}x {item.name}
+                            {isCancelled && <span className="ml-1.5 text-rose-500">(Annulé)</span>}
+                          </span>
+                          <span className={`font-extrabold text-slate-900 dark:text-white shrink-0 pl-2 ${isCancelled ? 'line-through' : ''}`}>
+                            {formatCurrency(item.unitPrice * item.quantity, settings.currency)}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
@@ -424,7 +454,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
         {/* ---------------- Colonne Clavier + Paiement ---------------- */}
         <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-4">
-          {!activeOrder ? (
+          {!hasActiveOrders ? (
             <div className="text-center py-16 text-slate-400 space-y-2 m-auto">
               <ShoppingBasket className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
               <p className="text-xs text-slate-400">
