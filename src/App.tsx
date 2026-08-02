@@ -16,7 +16,8 @@ import {
   PaymentMethod,
   PaymentBreakdown,
   TableStatus,
-  OrderStatus
+  OrderStatus,
+  MenuItem
 } from './types';
 
 import { Header } from './components/common/Header';
@@ -64,16 +65,49 @@ import { LoginModal } from './components/auth/LoginModal';
 // automatiquement (pas de bouton à cliquer) et le numéro de table trouvé s'affiche.
 function ClientLandingGate({
   settings,
+  menu,
   onCodeVerified,
   onPickupMode,
 }: {
   settings: RestaurantSettings;
+  menu: MenuItem[];
   onCodeVerified: (tableId: number) => void;
   onPickupMode: () => void;
 }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [foundTableId, setFoundTableId] = useState<number | null>(null);
+  const [showReservationModal, setShowReservationModal] = useState(false);
+  const [resName, setResName] = useState('');
+  const [resPhone, setResPhone] = useState('');
+  const [resGuestCount, setResGuestCount] = useState(2);
+  const [resDateTime, setResDateTime] = useState('');
+  const [resNotes, setResNotes] = useState('');
+  const [resSubmitting, setResSubmitting] = useState(false);
+  const [resDone, setResDone] = useState(false);
+  const [resError, setResError] = useState('');
+
+  const platsDuJour = menu.filter((m) => m.isPlatDuJour && m.isAvailable);
+
+  const handleSubmitReservation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resName.trim() || !resPhone.trim() || !resDateTime) return;
+    setResSubmitting(true);
+    setResError('');
+    const result = await store.requestReservation({
+      clientName: resName.trim(),
+      clientPhone: resPhone.trim(),
+      guestCount: resGuestCount,
+      dateTime: new Date(resDateTime).toISOString(),
+      notes: resNotes.trim() || undefined,
+    });
+    setResSubmitting(false);
+    if (!result.success) {
+      setResError(result.message || 'Impossible d\'envoyer la demande. Réessayez.');
+      return;
+    }
+    setResDone(true);
+  };
 
   useEffect(() => {
     if (pin.length !== 4) {
@@ -124,6 +158,23 @@ function ClientLandingGate({
           </p>
         </div>
 
+        {platsDuJour.length > 0 && (
+          <div className="text-left bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 space-y-2">
+            <p className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+              <span>⭐</span>
+              <span>Plat{platsDuJour.length > 1 ? 's' : ''} du Jour</span>
+            </p>
+            {platsDuJour.map((p) => (
+              <div key={p.id} className="flex items-center justify-between text-sm">
+                <span className="font-semibold text-[#1A1A1A] dark:text-white">{p.name}</span>
+                <span className="font-bold text-amber-700 dark:text-amber-400">
+                  {p.price} {settings.currency}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="space-y-3">
           <input
             type="text"
@@ -149,7 +200,7 @@ function ClientLandingGate({
           )}
         </div>
 
-        <div className="pt-2 border-t border-[#E5E2DD] dark:border-[#33332A]">
+        <div className="pt-2 border-t border-[#E5E2DD] dark:border-[#33332A] space-y-2">
           <button
             onClick={onPickupMode}
             className="w-full flex items-center justify-center gap-2 py-3 bg-[#F5F2ED] dark:bg-[#26261E] text-[#5A5A40] dark:text-[#D1CECB] rounded-2xl font-semibold text-sm border border-[#E5E2DD] dark:border-[#33332A] hover:bg-[#EDEDE6] transition-colors"
@@ -157,8 +208,114 @@ function ClientLandingGate({
             <span>🥡</span>
             <span>Commander à Emporter (Click & Collect)</span>
           </button>
+
+          <button
+            onClick={() => setShowReservationModal(true)}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-[#F5F2ED] dark:bg-[#26261E] text-[#5A5A40] dark:text-[#D1CECB] rounded-2xl font-semibold text-sm border border-[#E5E2DD] dark:border-[#33332A] hover:bg-[#EDEDE6] transition-colors"
+          >
+            <span>📅</span>
+            <span>Réserver une Table</span>
+          </button>
         </div>
       </div>
+
+      {showReservationModal && (
+        <div className="fixed inset-0 z-50 bg-[#12120E]/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1C1C16] w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-[#E5E2DD] dark:border-[#33332A] space-y-4">
+            {resDone ? (
+              <div className="text-center space-y-3 py-4">
+                <p className="text-3xl">✅</p>
+                <p className="text-sm font-bold text-[#1A1A1A] dark:text-white">Demande envoyée !</p>
+                <p className="text-xs text-[#9A948C]">
+                  Le restaurant va confirmer votre réservation et vous attribuer une table.
+                </p>
+                <button
+                  onClick={() => {
+                    setShowReservationModal(false);
+                    setResDone(false);
+                    setResName('');
+                    setResPhone('');
+                    setResNotes('');
+                    setResDateTime('');
+                  }}
+                  className="w-full py-3 bg-[#5A5A40] text-white rounded-2xl font-semibold text-xs mt-2"
+                >
+                  Fermer
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitReservation} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-serif font-semibold text-lg text-[#5A5A40] dark:text-[#E2E0D8]">
+                    Réserver une Table
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowReservationModal(false)}
+                    className="p-1.5 text-[#9A948C] hover:text-[#1A1A1A]"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {resError && <p className="text-xs font-semibold text-rose-500">{resError}</p>}
+
+                <div className="space-y-2 text-xs">
+                  <input
+                    type="text"
+                    required
+                    value={resName}
+                    onChange={(e) => setResName(e.target.value)}
+                    placeholder="Votre nom"
+                    className="w-full bg-[#F5F2ED] dark:bg-[#26261E] text-[#1A1A1A] dark:text-white p-3 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A]"
+                  />
+                  <input
+                    type="tel"
+                    required
+                    value={resPhone}
+                    onChange={(e) => setResPhone(e.target.value)}
+                    placeholder="Téléphone"
+                    className="w-full bg-[#F5F2ED] dark:bg-[#26261E] text-[#1A1A1A] dark:text-white p-3 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A]"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      required
+                      value={resGuestCount}
+                      onChange={(e) => setResGuestCount(parseInt(e.target.value) || 1)}
+                      placeholder="Personnes"
+                      className="w-24 bg-[#F5F2ED] dark:bg-[#26261E] text-[#1A1A1A] dark:text-white p-3 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A]"
+                    />
+                    <input
+                      type="datetime-local"
+                      required
+                      value={resDateTime}
+                      onChange={(e) => setResDateTime(e.target.value)}
+                      className="flex-1 bg-[#F5F2ED] dark:bg-[#26261E] text-[#1A1A1A] dark:text-white p-3 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A]"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={resNotes}
+                    onChange={(e) => setResNotes(e.target.value)}
+                    placeholder="Demande spéciale (optionnel)"
+                    className="w-full bg-[#F5F2ED] dark:bg-[#26261E] text-[#1A1A1A] dark:text-white p-3 rounded-2xl border border-[#E5E2DD] dark:border-[#33332A]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={resSubmitting}
+                  className="w-full py-3.5 bg-[#5A5A40] hover:bg-[#484833] disabled:opacity-60 text-white rounded-2xl font-semibold text-xs shadow-2xs"
+                >
+                  {resSubmitting ? 'Envoi...' : 'Envoyer la Demande'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -461,6 +618,7 @@ export default function App() {
         !clientAccessGranted ? (
           <ClientLandingGate
             settings={appState.settings}
+            menu={appState.menu}
             onCodeVerified={(tableId) => {
               setSelectedTableId(tableId);
               setClientAccessGranted(true);
@@ -658,6 +816,7 @@ export default function App() {
               tables={appState.tables}
               onAddReservation={(r) => store.addReservation(r)}
               onCancelReservation={(id) => store.cancelReservation(id)}
+              onAssignTable={(resId, tableId) => store.assignReservationTable(resId, tableId)}
             />
           )}
 
