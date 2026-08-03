@@ -11,13 +11,15 @@ import {
   QrCode,
   Settings as SettingsIcon,
   LogOut,
-  ShieldAlert
+  ShieldAlert,
+  Bell
 } from 'lucide-react';
 import { User } from '../../types';
 
 export type AdminTab =
   | 'dashboard'
   | 'tables'
+  | 'service'
   | 'kitchen'
   | 'cashier'
   | 'menu'
@@ -49,13 +51,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     if (role === 'manager') return tab !== 'settings';
     if (role === 'cuisinier') return tab === 'kitchen' || tab === 'menu';
     if (role === 'caissier') return tab === 'cashier' || tab === 'tables' || tab === 'history';
-    if (role === 'serveur') return tab === 'tables' || tab === 'kitchen' || tab === 'reservations';
+    if (role === 'serveur') return tab === 'tables' || tab === 'service' || tab === 'kitchen' || tab === 'reservations';
     return true;
   };
 
   const navItems: Array<{ id: AdminTab; label: string; icon: React.ReactNode }> = [
     { id: 'dashboard', label: 'Tableau de bord', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'tables', label: 'Tables & Plan', icon: <Grid className="w-5 h-5" /> },
+    { id: 'service', label: 'Suivi de Service', icon: <Bell className="w-5 h-5" /> },
     { id: 'kitchen', label: 'Cuisine (KDS)', icon: <ChefHat className="w-5 h-5" /> },
     { id: 'cashier', label: 'Caisse & POS', icon: <Receipt className="w-5 h-5" /> },
     { id: 'menu', label: 'Carte & Plats', icon: <UtensilsCrossed className="w-5 h-5" /> },
