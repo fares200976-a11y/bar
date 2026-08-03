@@ -54,7 +54,7 @@ export const NotificationToast: React.FC<NotificationToastProps> = ({
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 max-w-sm w-full bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-700 rounded-2xl p-4 shadow-2xl flex items-start gap-3 animate-slide-up">
+    <div className="fixed bottom-5 left-5 z-50 max-w-sm w-full bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-700 rounded-2xl p-4 shadow-2xl flex items-start gap-3 animate-slide-up">
       <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0">
         {getIcon()}
       </div>
