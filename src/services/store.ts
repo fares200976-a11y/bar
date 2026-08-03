@@ -865,6 +865,36 @@ export const store = {
     return { success: true, items: data?.items || [] };
   },
 
+  // Change l'ordre d'affichage d'une catégorie (échange sa position avec sa
+  // voisine directe) — utilisé par les flèches ↑↓ dans Carte & Plats.
+  async reorderCategory(categoryId: string, direction: 'up' | 'down'): Promise<{ success: boolean; message?: string }> {
+    const sorted = [...state.categories].sort((a, b) => a.order - b.order);
+    const idx = sorted.findIndex((c) => c.id === categoryId);
+    if (idx === -1) return { success: false, message: 'Catégorie introuvable.' };
+
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return { success: true }; // déjà en bout de liste
+
+    const a = sorted[idx];
+    const b = sorted[swapIdx];
+
+    const { error: error1 } = await supabase.from('categories').update({ sort_order: b.order }).eq('id', a.id);
+    const { error: error2 } = await supabase.from('categories').update({ sort_order: a.order }).eq('id', b.id);
+    await fetchAll();
+
+    if (error1 || error2) return { success: false, message: (error1 || error2)?.message };
+    return { success: true };
+  },
+
+  // Change la section (Menu/plats ou Bar/alcools) d'une catégorie déjà créée
+  // — utile pour corriger un classement automatique erroné après un scan.
+  async updateCategorySection(categoryId: string, section: 'food' | 'bar'): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('categories').update({ section }).eq('id', categoryId);
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
   async deleteCategory(catId: string): Promise<{ success: boolean; message?: string }> {
     const { error } = await supabase.from('categories').delete().eq('id', catId);
     await fetchAll();
