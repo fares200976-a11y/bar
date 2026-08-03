@@ -849,6 +849,7 @@ export default function App() {
             <KitchenView
               orders={appState.orders}
               categories={appState.categories}
+              menu={appState.menu}
               settings={appState.settings}
               onUpdateOrderStatus={(oId, st) => store.updateOrderStatus(oId, st)}
               onUpdateOrderItemStatus={(oId, iId, st) => store.updateOrderItemStatus(oId, iId, st)}
