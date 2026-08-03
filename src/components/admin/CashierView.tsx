@@ -27,7 +27,7 @@ interface CashierViewProps {
   menu: MenuItem[];
   onAddItemsToTable: (
     tableId: number,
-    items: Array<{ menuItem: MenuItem; quantity: number }>
+    items: Array<{ menuItem: MenuItem; quantity: number; weightGrams?: number; unitPriceOverride?: number }>
   ) => Promise<{ success: boolean; message?: string }>;
   onProcessPayment: (
     tableId: number,
@@ -192,6 +192,21 @@ export const CashierView: React.FC<CashierViewProps> = ({
   }, [menu, activeCategoryId, productSearch]);
 
   const handleAddProduct = async (item: MenuItem) => {
+    if (item.isPricedByWeight) {
+      const gramsStr = prompt(`Poids de "${item.name}" en grammes (prix au Kg : ${formatCurrency(item.price, settings.currency)}) :`);
+      if (gramsStr === null) return;
+      const grams = parseInt(gramsStr, 10);
+      if (!grams || grams <= 0) {
+        alert('Poids invalide.');
+        return;
+      }
+      const computedPrice = Math.round(((item.price * grams) / 1000) * 100) / 100;
+      setAddingItemId(item.id);
+      await onAddItemsToTable(selectedTableId, [{ menuItem: item, quantity: 1, weightGrams: grams, unitPriceOverride: computedPrice }]);
+      setAddingItemId(null);
+      return;
+    }
+
     setAddingItemId(item.id);
     await onAddItemsToTable(selectedTableId, [{ menuItem: item, quantity: 1 }]);
     setAddingItemId(null);
@@ -441,7 +456,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     {item.name}
                   </p>
                   <p className="text-xs font-black text-rose-600 dark:text-rose-400 mt-1.5">
-                    {formatCurrency(price, settings.currency)}
+                    {formatCurrency(price, settings.currency)}{item.isPricedByWeight && <span className="text-[10px] font-normal">/Kg</span>}
                   </p>
                 </button>
               );

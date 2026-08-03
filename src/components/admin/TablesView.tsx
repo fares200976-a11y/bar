@@ -41,7 +41,7 @@ interface TablesViewProps {
   onOpenCashierForTable: (tableId: number) => void;
   onAddItemsToTable: (
     tableId: number,
-    items: Array<{ menuItem: MenuItem; quantity: number }>
+    items: Array<{ menuItem: MenuItem; quantity: number; weightGrams?: number; unitPriceOverride?: number }>
   ) => Promise<{ success: boolean; message?: string }>;
   onAddItemByBarcode: (
     tableId: number,
@@ -178,6 +178,22 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
   const handleAddProductFS = async (item: MenuItem) => {
     if (!selectedTable) return;
+
+    if (item.isPricedByWeight) {
+      const gramsStr = prompt(`Poids de "${item.name}" en grammes (prix au Kg : ${formatCurrency(item.price, settings.currency)}) :`);
+      if (gramsStr === null) return;
+      const grams = parseInt(gramsStr, 10);
+      if (!grams || grams <= 0) {
+        alert('Poids invalide.');
+        return;
+      }
+      const computedPrice = Math.round(((item.price * grams) / 1000) * 100) / 100;
+      setAddingItemIdFS(item.id);
+      await onAddItemsToTable(selectedTable.id, [{ menuItem: item, quantity: 1, weightGrams: grams, unitPriceOverride: computedPrice }]);
+      setAddingItemIdFS(null);
+      return;
+    }
+
     setAddingItemIdFS(item.id);
     await onAddItemsToTable(selectedTable.id, [{ menuItem: item, quantity: 1 }]);
     setAddingItemIdFS(null);
@@ -436,7 +452,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
                         {item.name}
                       </p>
                       <p className="text-sm font-black text-rose-600 dark:text-rose-400 mt-1.5">
-                        {formatCurrency(price, settings.currency)}
+                        {formatCurrency(price, settings.currency)}{item.isPricedByWeight && <span className="text-[10px] font-normal">/Kg</span>}
                       </p>
                     </button>
                   );

@@ -98,6 +98,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [formPromoPrice, setFormPromoPrice] = useState<number>(8);
   const [formIsRecommended, setFormIsRecommended] = useState(false);
   const [formIsPlatDuJour, setFormIsPlatDuJour] = useState(false);
+  const [formIsPricedByWeight, setFormIsPricedByWeight] = useState(false);
   const [formIsSpicy, setFormIsSpicy] = useState(false);
   const [formAllergens, setFormAllergens] = useState<string>('');
   const [formDietaryLabels, setFormDietaryLabels] = useState<string[]>([]);
@@ -118,6 +119,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormPromoPrice(10);
     setFormIsRecommended(false);
     setFormIsPlatDuJour(false);
+    setFormIsPricedByWeight(false);
     setFormIsSpicy(false);
     setFormAllergens('Gluten, Lait');
     setFormDietaryLabels([]);
@@ -140,6 +142,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormPromoPrice(item.promoPrice || item.price * 0.8);
     setFormIsRecommended(Boolean(item.isRecommended));
     setFormIsPlatDuJour(Boolean(item.isPlatDuJour));
+    setFormIsPricedByWeight(Boolean(item.isPricedByWeight));
     setFormIsSpicy(Boolean(item.isSpicy));
     setFormAllergens(item.allergens.join(', '));
     setFormDietaryLabels(item.dietaryLabels || []);
@@ -162,6 +165,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
       promoPrice: formIsPromo ? formPromoPrice : undefined,
       isRecommended: formIsRecommended,
       isPlatDuJour: formIsPlatDuJour,
+      isPricedByWeight: formIsPricedByWeight,
       isSpicy: formIsSpicy,
       allergens: formAllergens
         .split(',')
@@ -529,7 +533,9 @@ export const MenuView: React.FC<MenuViewProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300">Prix ({settings.currency}) :</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  {formIsPricedByWeight ? `Prix au Kg (${settings.currency}) :` : `Prix (${settings.currency}) :`}
+                </label>
                 <input
                   type="number"
                   step="0.1"
@@ -692,6 +698,16 @@ export const MenuView: React.FC<MenuViewProps> = ({
                     className="rounded text-rose-600 focus:ring-rose-500"
                   />
                   <span>⭐ Plat du Jour (mis en avant sur la page d'accueil client)</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formIsPricedByWeight}
+                    onChange={(e) => setFormIsPricedByWeight(e.target.checked)}
+                    className="rounded text-rose-600 focus:ring-rose-500"
+                  />
+                  <span>⚖️ Vendu au poids (poisson...) — le prix ci-dessus devient le prix au Kg</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">
