@@ -527,12 +527,41 @@ export default function App() {
   // avoir une commande active en même temps — on ne peut donc pas identifier
   // "ma commande" juste par tableId comme pour une vraie table. On utilise
   // l'ID de commande précis, mémorisé au moment de la création.
+  //
+  // Pour une vraie table, plusieurs commandes SÉPARÉES peuvent maintenant
+  // coexister (voir migration 0027) — on les combine toutes ici pour que le
+  // client voie bien TOUTE son addition, pas juste sa dernière commande.
+  const ORDER_STATUS_RANK: Record<string, number> = {
+    en_attente_validation: 0,
+    nouvelle: 1,
+    en_preparation: 2,
+    prete: 3,
+    servie: 4,
+    terminee: 5,
+    annulee: 6,
+  };
+
   const activeOrderForTable =
     selectedTableId === 999
       ? appState.orders.find((o) => o.id === pickupOrderId)
-      : appState.orders.find(
-          (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee'
-        );
+      : (() => {
+          const tableOrders = appState.orders.filter(
+            (o) => o.tableId === selectedTableId && o.status !== 'terminee' && o.status !== 'annulee'
+          );
+          if (tableOrders.length === 0) return undefined;
+          // Statut affiché = le moins avancé des deux (le client doit voir
+          // "en attente de validation" tant qu'au moins une de ses commandes
+          // n'est pas encore validée, même si une autre est déjà prête).
+          const combinedStatus = tableOrders.reduce(
+            (min, o) => (ORDER_STATUS_RANK[o.status] < ORDER_STATUS_RANK[min] ? o.status : min),
+            tableOrders[0].status
+          );
+          return {
+            ...tableOrders[0],
+            status: combinedStatus,
+            items: tableOrders.flatMap((o) => o.items),
+          };
+        })();
 
   // Cart operations
   const handleAddToCart = (item: MenuItem, quantity: number, notes?: string) => {
