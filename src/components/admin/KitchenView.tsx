@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { ChefHat, Clock, CheckCircle2, Printer, Flame, Bell, Utensils, Beer, ShieldAlert } from 'lucide-react';
-import { Category, Order, OrderStatus, RestaurantSettings } from '../../types';
+import { Category, MenuItem, Order, OrderStatus, RestaurantSettings } from '../../types';
 import { formatTimeOnly, isDrinkOrBeerItem } from '../../utils/formatters';
 import { printThermalReceipt } from '../../utils/export';
 
 interface KitchenViewProps {
   orders: Order[];
   categories?: Category[];
+  menu?: MenuItem[];
   settings: RestaurantSettings;
   onUpdateOrderStatus: (orderId: string, status: OrderStatus) => Promise<{ success: boolean; message?: string }>;
   onUpdateOrderItemStatus: (
@@ -19,6 +20,7 @@ interface KitchenViewProps {
 export const KitchenView: React.FC<KitchenViewProps> = ({
   orders,
   categories = [],
+  menu = [],
   settings,
   onUpdateOrderStatus,
   onUpdateOrderItemStatus,
@@ -37,10 +39,10 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
   // Filter items in an order depending on selected filter (cuisine = food only, bar = drinks only, tous = all)
   const filterOrderItems = (ord: Order) => {
     if (filterType === 'cuisine') {
-      return ord.items.filter((item) => !isDrinkOrBeerItem(item, categories));
+      return ord.items.filter((item) => !isDrinkOrBeerItem(item, categories, menu));
     }
     if (filterType === 'bar') {
-      return ord.items.filter((item) => isDrinkOrBeerItem(item, categories));
+      return ord.items.filter((item) => isDrinkOrBeerItem(item, categories, menu));
     }
     return ord.items;
   };
@@ -139,7 +141,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   </div>
 
                   <button
-                    onClick={() => printThermalReceipt(filterType === 'bar' ? 'bar' : 'cuisine', ord, undefined, settings)}
+                    onClick={() => printThermalReceipt(filterType === 'bar' ? 'bar' : 'cuisine', ord, undefined, settings, categories, menu)}
                     className="p-2.5 text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white bg-slate-100 dark:bg-slate-800 rounded-xl cursor-pointer"
                     title="Imprimer Ticket"
                   >
@@ -213,7 +215,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   </div>
 
                   <button
-                    onClick={() => printThermalReceipt(filterType === 'bar' ? 'bar' : 'cuisine', ord, undefined, settings)}
+                    onClick={() => printThermalReceipt(filterType === 'bar' ? 'bar' : 'cuisine', ord, undefined, settings, categories, menu)}
                     className="p-2.5 text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white bg-slate-100 dark:bg-slate-800 rounded-xl cursor-pointer"
                   >
                     <Printer className="w-5 h-5" />

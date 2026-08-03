@@ -323,7 +323,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                   </p>
                 </div>
                 <button
-                  onClick={() => combinedOrderForReceipt && printThermalReceipt('addition', combinedOrderForReceipt, undefined, settings)}
+                  onClick={() => combinedOrderForReceipt && printThermalReceipt('addition', combinedOrderForReceipt, undefined, settings, categories, menu)}
                   className="flex items-center gap-1.5 px-2.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl text-[11px] font-bold transition-colors shrink-0"
                 >
                   <Printer className="w-3.5 h-3.5" />
@@ -584,7 +584,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               </div>
               <button
                 onClick={() =>
-                  printThermalReceipt('addition', lastProcessedBill.order, lastProcessedBill.bill, settings)
+                  printThermalReceipt('addition', lastProcessedBill.order, lastProcessedBill.bill, settings, categories, menu)
                 }
                 className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-[11px] font-bold shadow-xs shrink-0 cursor-pointer"
               >
