@@ -39,6 +39,9 @@ const TablesView = lazy(() =>
 const KitchenView = lazy(() =>
   import('./components/admin/KitchenView').then((m) => ({ default: m.KitchenView }))
 );
+const ServiceTrackingView = lazy(() =>
+  import('./components/admin/ServiceTrackingView').then((m) => ({ default: m.ServiceTrackingView }))
+);
 const CashierView = lazy(() =>
   import('./components/admin/CashierView').then((m) => ({ default: m.CashierView }))
 );
@@ -690,12 +693,14 @@ export default function App() {
         onToggleAudio={() => setAudioEnabled(!audioEnabled)}
       />
 
-      {/* Real-time Notification Toast Alert */}
-      <NotificationToast
-        notifications={appState.notifications}
-        onClearNotifications={() => store.clearNotifications()}
-        onDeleteNotification={(id) => store.deleteNotification(id)}
-      />
+      {/* Real-time Notification Toast Alert — staff uniquement, jamais côté client */}
+      {currentView === 'admin' && (
+        <NotificationToast
+          notifications={appState.notifications}
+          onClearNotifications={() => store.clearNotifications()}
+          onDeleteNotification={(id) => store.deleteNotification(id)}
+        />
+      )}
 
       {/* Main View Router */}
       {currentView === 'client' ? (
@@ -853,6 +858,14 @@ export default function App() {
               settings={appState.settings}
               onUpdateOrderStatus={(oId, st) => store.updateOrderStatus(oId, st)}
               onUpdateOrderItemStatus={(oId, iId, st) => store.updateOrderItemStatus(oId, iId, st)}
+            />
+          )}
+
+          {adminTab === 'service' && (
+            <ServiceTrackingView
+              orders={appState.orders}
+              settings={appState.settings}
+              onMarkItemServed={(oId, iId, nextStatus) => store.updateOrderItemStatus(oId, iId, nextStatus)}
             />
           )}
 
