@@ -47,6 +47,9 @@ interface AppState {
   notifications: CallNotification[];
   activeAlarm: ActiveAlarm | null;
   cashRegisterClosings: CashRegisterClosing[];
+  isOffline: boolean;
+  isUsingCachedData: boolean;
+  pendingOfflineOrders: number;
 }
 
 const DEFAULT_SETTINGS: RestaurantSettings = {
@@ -79,7 +82,113 @@ let state: AppState = {
   notifications: [],
   activeAlarm: null,
   cashRegisterClosings: [],
+  isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
+  isUsingCachedData: false,
+  pendingOfflineOrders: 0,
 };
+
+// ----------------------------------------------------------------------------
+// Mode hors-ligne : sauvegarde locale de secours (menu/tables/réglages) pour
+// que le client puisse au moins CONSULTER le menu sans connexion, et file
+// d'attente des commandes passées hors-ligne — envoyées automatiquement dès
+// le retour de la connexion (voir flushOfflineOrderQueue).
+// ----------------------------------------------------------------------------
+const OFFLINE_CACHE_KEY = 'bar_offline_cache_v1';
+const OFFLINE_QUEUE_KEY = 'bar_offline_order_queue_v1';
+
+interface OfflineCache {
+  categories: Category[];
+  menu: MenuItem[];
+  tables: Table[];
+  settings: RestaurantSettings;
+  savedAt: string;
+}
+
+interface QueuedOrder {
+  id: string;
+  tableId: number;
+  items: Array<{ menuItemId: string; quantity: number; notes?: string; weightGrams?: number }>;
+  queuedAt: string;
+}
+
+function saveOfflineCache() {
+  try {
+    const cache: OfflineCache = {
+      categories: state.categories,
+      menu: state.menu,
+      tables: state.tables,
+      settings: state.settings,
+      savedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(OFFLINE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // stockage plein ou indisponible — pas grave, juste pas de secours hors-ligne cette fois
+  }
+}
+
+function loadOfflineCache(): OfflineCache | null {
+  try {
+    const raw = localStorage.getItem(OFFLINE_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as OfflineCache) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getOfflineQueue(): QueuedOrder[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    return raw ? (JSON.parse(raw) as QueuedOrder[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOfflineQueue(queue: QueuedOrder[]) {
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  } catch {
+    // ignore
+  }
+}
+
+// Envoie automatiquement toutes les commandes mises en attente pendant une
+// coupure Internet, dès que la connexion revient.
+async function flushOfflineOrderQueue() {
+  const queue = getOfflineQueue();
+  if (queue.length === 0) return;
+
+  const remaining: QueuedOrder[] = [];
+  for (const queued of queue) {
+    const { error } = await supabase.rpc('create_client_order', {
+      p_table_id: queued.tableId,
+      p_items: queued.items,
+    });
+    if (error) {
+      remaining.push(queued);
+    }
+  }
+  saveOfflineQueue(remaining);
+  state = { ...state, pendingOfflineOrders: remaining.length };
+  notify();
+  await fetchAll();
+}
+
+if (typeof window !== 'undefined') {
+  state.pendingOfflineOrders = getOfflineQueue().length;
+
+  window.addEventListener('online', () => {
+    state = { ...state, isOffline: false };
+    notify();
+    flushOfflineOrderQueue();
+    fetchAll();
+  });
+
+  window.addEventListener('offline', () => {
+    state = { ...state, isOffline: true };
+    notify();
+  });
+}
 
 type Listener = (state: AppState) => void;
 const listeners = new Set<Listener>();
@@ -435,12 +544,95 @@ function mapCashRegisterClosing(row: any): CashRegisterClosing {
 
 let fetchInFlight: Promise<void> | null = null;
 
+// Enregistre une commande client localement (pas encore envoyée) et renvoie
+// un objet "commande" provisoire, affiché tel quel côté client en attendant
+// l'envoi réel dès le retour de la connexion.
+function queueOrderOffline(
+  tableId: number,
+  payload: Array<{ menuItemId: string; quantity: number; notes?: string; weightGrams?: number }>,
+  items: Array<{ menuItem: MenuItem; quantity: number; notes?: string; weightGrams?: number }>
+): Order {
+  const queue = getOfflineQueue();
+  const localId = `offline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  queue.push({ id: localId, tableId, items: payload, queuedAt: new Date().toISOString() });
+  saveOfflineQueue(queue);
+
+  state = { ...state, pendingOfflineOrders: queue.length };
+  notify();
+
+  const now = new Date().toISOString();
+  return {
+    id: localId,
+    orderNumber: 0,
+    tableId,
+    items: items.map((i, idx) => ({
+      id: `${localId}-item-${idx}`,
+      menuItemId: i.menuItem.id,
+      name: i.weightGrams ? `${i.menuItem.name} (${i.weightGrams}g)` : i.menuItem.name,
+      unitPrice: i.menuItem.isPricedByWeight && i.weightGrams
+        ? Math.round(((i.menuItem.price * i.weightGrams) / 1000) * 100) / 100
+        : i.menuItem.price,
+      quantity: i.menuItem.isPricedByWeight && i.weightGrams ? 1 : i.quantity,
+      notes: i.notes,
+      status: 'nouvelle',
+    })),
+    status: 'en_attente_validation',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 async function fetchAll(): Promise<void> {
   // Évite les rafraîchissements concurrents qui se chevauchent (plusieurs
   // événements Realtime arrivant en rafale).
   if (fetchInFlight) return fetchInFlight;
 
   fetchInFlight = (async () => {
+    let results;
+    try {
+      results = await Promise.all([
+        supabase.from('profiles').select('*'),
+        supabase.from('categories').select('*').order('sort_order'),
+        supabase.from('menu_items').select('*'),
+        supabase.from('restaurant_tables').select('*').order('id'),
+        supabase.from('orders').select('*').order('created_at', { ascending: false }),
+        supabase.from('order_items').select('*'),
+        supabase.from('bills').select('*').order('paid_at', { ascending: false }),
+        supabase.from('reservations').select('*'),
+        supabase.from('restaurant_settings').select('*').eq('id', true).maybeSingle(),
+        supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(30),
+        supabase.from('active_alarm').select('*').eq('id', true).maybeSingle(),
+        supabase.from('cash_register_closings').select('*').order('created_at', { ascending: false }).limit(20),
+      ]);
+    } catch {
+      // Pas de connexion (ou Supabase injoignable) : on ne casse jamais l'app.
+      // Si on a déjà des données en mémoire, on les garde telles quelles — on
+      // signale juste le mode hors-ligne. Sinon (tout premier chargement),
+      // on retombe sur la dernière sauvegarde locale connue, pour que le
+      // client puisse au moins consulter le menu.
+      if (!state.loaded) {
+        const cache = loadOfflineCache();
+        if (cache) {
+          state = {
+            ...state,
+            loaded: true,
+            categories: cache.categories,
+            menu: cache.menu,
+            tables: cache.tables,
+            settings: cache.settings,
+            isOffline: true,
+            isUsingCachedData: true,
+          };
+        } else {
+          state = { ...state, isOffline: true };
+        }
+      } else {
+        state = { ...state, isOffline: true };
+      }
+      notify();
+      return;
+    }
+
     const [
       profilesRes,
       categoriesRes,
@@ -454,20 +646,7 @@ async function fetchAll(): Promise<void> {
       notificationsRes,
       alarmRes,
       cashClosingsRes,
-    ] = await Promise.all([
-      supabase.from('profiles').select('*'),
-      supabase.from('categories').select('*').order('sort_order'),
-      supabase.from('menu_items').select('*'),
-      supabase.from('restaurant_tables').select('*').order('id'),
-      supabase.from('orders').select('*').order('created_at', { ascending: false }),
-      supabase.from('order_items').select('*'),
-      supabase.from('bills').select('*').order('paid_at', { ascending: false }),
-      supabase.from('reservations').select('*'),
-      supabase.from('restaurant_settings').select('*').eq('id', true).maybeSingle(),
-      supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(30),
-      supabase.from('active_alarm').select('*').eq('id', true).maybeSingle(),
-      supabase.from('cash_register_closings').select('*').order('created_at', { ascending: false }).limit(20),
-    ]);
+    ] = results;
 
     const tables = (tablesRes.data || []).map(mapTable);
 
@@ -499,8 +678,12 @@ async function fetchAll(): Promise<void> {
       notifications,
       activeAlarm: mapActiveAlarm(alarmRes.data),
       cashRegisterClosings: (cashClosingsRes.data || []).map(mapCashRegisterClosing),
+      isOffline: false,
+      isUsingCachedData: false,
+      pendingOfflineOrders: getOfflineQueue().length,
     };
 
+    saveOfflineCache();
     syncAlarmAudio();
     notify();
   })();
@@ -888,13 +1071,26 @@ export const store = {
       notes: i.notes,
       weightGrams: i.weightGrams,
     }));
-    const { data: orderId, error } = await supabase.rpc('create_client_order', {
-      p_table_id: tableId,
-      p_items: payload,
-    });
-    await fetchAll();
-    if (error || !orderId) return null;
-    return state.orders.find((o) => o.id === orderId) || null;
+
+    const isOfflineNow = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (isOfflineNow) {
+      return queueOrderOffline(tableId, payload, items);
+    }
+
+    try {
+      const { data: orderId, error } = await supabase.rpc('create_client_order', {
+        p_table_id: tableId,
+        p_items: payload,
+      });
+      await fetchAll();
+      if (error || !orderId) return null;
+      return state.orders.find((o) => o.id === orderId) || null;
+    } catch {
+      // Échec réseau malgré une connexion apparente (wifi connecté sans
+      // accès Internet réel, coupure pile au moment de l'envoi...) — on met
+      // en file d'attente plutôt que de perdre la commande du client.
+      return queueOrderOffline(tableId, payload, items);
+    }
   },
 
   // Ajout rapide par le personnel (admin/manager/serveur) depuis le plan de
