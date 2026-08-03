@@ -114,8 +114,7 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
           catNameLower.includes('whiskey') ||
           catNameLower.includes('digestif') ||
           catNameLower.includes('alcool') ||
-          catNameLower.includes('cocktail') ||
-          catNameLower.includes('boisson')
+          catNameLower.includes('cocktail')
             ? 'bar'
             : 'food';
         const result = await store.addCategoryFast(item.category.trim() || 'Autre', guessedSection);
