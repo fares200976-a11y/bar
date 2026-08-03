@@ -251,6 +251,7 @@ function mapMenuItem(row: any): MenuItem {
     translations: row.translations || {},
     barcode: row.barcode ?? undefined,
     isPlatDuJour: row.is_plat_du_jour ?? false,
+    isPricedByWeight: row.is_priced_by_weight ?? false,
   };
 }
 
@@ -278,6 +279,7 @@ function mapOrderItem(row: any): OrderItem {
     quantity: row.quantity,
     notes: row.notes ?? undefined,
     status: row.status,
+    weightGrams: row.weight_grams ?? undefined,
   };
 }
 
@@ -606,6 +608,7 @@ export const store = {
       translations: item.translations || {},
       barcode: item.barcode || null,
       is_plat_du_jour: item.isPlatDuJour ?? false,
+      is_priced_by_weight: item.isPricedByWeight ?? false,
     });
     if (error) return { success: false, message: error.message };
     return { success: true };
@@ -711,6 +714,7 @@ export const store = {
       translations: item.translations || {},
       barcode: item.barcode || null,
       is_plat_du_jour: item.isPlatDuJour ?? false,
+      is_priced_by_weight: item.isPricedByWeight ?? false,
     });
     await fetchAll();
   },
@@ -744,6 +748,7 @@ export const store = {
     if (updates.translations !== undefined) payload.translations = updates.translations;
     if (updates.barcode !== undefined) payload.barcode = updates.barcode || null;
     if (updates.isPlatDuJour !== undefined) payload.is_plat_du_jour = updates.isPlatDuJour;
+    if (updates.isPricedByWeight !== undefined) payload.is_priced_by_weight = updates.isPricedByWeight;
 
     await supabase.from('menu_items').update(payload).eq('id', id);
     await fetchAll();
@@ -875,9 +880,14 @@ export const store = {
   // --- ORDERS ---
   async createOrder(
     tableId: number,
-    items: Array<{ menuItem: MenuItem; quantity: number; notes?: string }>
+    items: Array<{ menuItem: MenuItem; quantity: number; notes?: string; weightGrams?: number }>
   ): Promise<Order | null> {
-    const payload = items.map((i) => ({ menuItemId: i.menuItem.id, quantity: i.quantity, notes: i.notes }));
+    const payload = items.map((i) => ({
+      menuItemId: i.menuItem.id,
+      quantity: i.quantity,
+      notes: i.notes,
+      weightGrams: i.weightGrams,
+    }));
     const { data: orderId, error } = await supabase.rpc('create_client_order', {
       p_table_id: tableId,
       p_items: payload,
@@ -892,9 +902,14 @@ export const store = {
   // (pas de validation nécessaire, contrairement à create_client_order).
   async addItemsToTable(
     tableId: number,
-    items: Array<{ menuItem: MenuItem; quantity: number }>
+    items: Array<{ menuItem: MenuItem; quantity: number; weightGrams?: number; unitPriceOverride?: number }>
   ): Promise<{ success: boolean; message?: string }> {
-    const payload = items.map((i) => ({ menuItemId: i.menuItem.id, quantity: i.quantity }));
+    const payload = items.map((i) => ({
+      menuItemId: i.menuItem.id,
+      quantity: i.quantity,
+      weightGrams: i.weightGrams,
+      unitPriceOverride: i.unitPriceOverride,
+    }));
     const { error } = await supabase.rpc('staff_add_items_to_table', {
       p_table_id: tableId,
       p_items: payload,
@@ -929,11 +944,16 @@ export const store = {
 
   // Click & Collect : commande à emporter, rattachée à la table virtuelle 999.
   async createPickupOrder(
-    items: Array<{ menuItem: MenuItem; quantity: number; notes?: string }>,
+    items: Array<{ menuItem: MenuItem; quantity: number; notes?: string; weightGrams?: number }>,
     clientName?: string,
     clientPhone?: string
   ): Promise<Order | null> {
-    const payload = items.map((i) => ({ menuItemId: i.menuItem.id, quantity: i.quantity, notes: i.notes }));
+    const payload = items.map((i) => ({
+      menuItemId: i.menuItem.id,
+      quantity: i.quantity,
+      notes: i.notes,
+      weightGrams: i.weightGrams,
+    }));
     const { data: orderId, error } = await supabase.rpc('create_pickup_order', {
       p_items: payload,
       p_client_name: clientName || null,
