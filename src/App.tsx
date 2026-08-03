@@ -360,7 +360,7 @@ export default function App() {
 
   // Client Cart State
   const [cartItems, setCartItems] = useState<
-    Array<{ menuItem: MenuItem; quantity: number; notes?: string }>
+    Array<{ menuItem: MenuItem; quantity: number; notes?: string; weightGrams?: number }>
   >([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -517,8 +517,24 @@ export default function App() {
     // validée via son code QR à 4 chiffres (voir isSelectedTableVerified).
     if (!isSelectedTableVerified) return;
 
+    if (item.isPricedByWeight) {
+      const gramsStr = prompt(
+        `Poids souhaité de "${item.name}" en grammes (prix au Kg : ${item.price} ${appState.settings.currency}) :`
+      );
+      if (gramsStr === null) return;
+      const grams = parseInt(gramsStr, 10);
+      if (!grams || grams <= 0) {
+        alert('Poids invalide.');
+        return;
+      }
+      // Chaque pesée est une ligne à part (poids potentiellement différent
+      // d'une fois à l'autre) — pas de fusion avec une entrée existante.
+      setCartItems([...cartItems, { menuItem: item, quantity: 1, notes, weightGrams: grams }]);
+      return;
+    }
+
     const existingIndex = cartItems.findIndex(
-      (c) => c.menuItem.id === item.id && c.notes === notes
+      (c) => c.menuItem.id === item.id && c.notes === notes && !c.weightGrams
     );
     if (existingIndex > -1) {
       const updated = [...cartItems];
