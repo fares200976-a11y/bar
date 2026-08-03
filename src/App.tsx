@@ -358,10 +358,33 @@ export default function App() {
   const [settingsUnlocked, setSettingsUnlocked] = useState(false);
   const [showSettingsGate, setShowSettingsGate] = useState(false);
 
-  // Client Cart State
+  // Client Cart State — sauvegardé automatiquement en local : si l'appareil
+  // s'éteint/redémarre (coupure de courant, fermeture accidentelle...), le
+  // panier en cours n'est pas perdu.
+  const CART_DRAFT_KEY = 'bar_client_cart_draft_v1';
   const [cartItems, setCartItems] = useState<
     Array<{ menuItem: MenuItem; quantity: number; notes?: string; weightGrams?: number }>
-  >([]);
+  >(() => {
+    try {
+      const raw = localStorage.getItem(CART_DRAFT_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (cartItems.length > 0) {
+        localStorage.setItem(CART_DRAFT_KEY, JSON.stringify(cartItems));
+      } else {
+        localStorage.removeItem(CART_DRAFT_KEY);
+      }
+    } catch {
+      // stockage indisponible — pas grave, juste pas de récupération cette fois
+    }
+  }, [cartItems]);
+
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 
@@ -599,6 +622,22 @@ export default function App() {
 
   return (
     <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors`}>
+      {/* Bandeau hors-ligne — visible côté client comme côté staff */}
+      {appState.isOffline && (
+        <div className="sticky top-0 z-[100] bg-amber-500 text-amber-950 text-xs font-bold text-center py-2 px-4">
+          {appState.isUsingCachedData
+            ? '📡 Pas de connexion — menu affiché depuis la dernière version enregistrée. Les commandes seront envoyées dès le retour du réseau.'
+            : appState.pendingOfflineOrders > 0
+            ? `📡 Pas de connexion — ${appState.pendingOfflineOrders} commande(s) en attente d'envoi, ça part automatiquement dès le retour du réseau.`
+            : '📡 Pas de connexion Internet — certaines actions ne fonctionneront pas tant que la connexion n\'est pas rétablie.'}
+        </div>
+      )}
+      {!appState.isOffline && appState.pendingOfflineOrders > 0 && (
+        <div className="sticky top-0 z-[100] bg-blue-500 text-white text-xs font-bold text-center py-2 px-4">
+          🔄 Connexion rétablie — envoi de {appState.pendingOfflineOrders} commande(s) en attente...
+        </div>
+      )}
+
       {/* Persistent Audio Siren Alarm Banner for Waiters and Admin ONLY */}
       {currentView === 'admin' && <AlarmBanner alarm={appState.activeAlarm} />}
 
