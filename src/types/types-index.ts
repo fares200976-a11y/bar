@@ -53,6 +53,7 @@ export interface MenuItem {
   translations?: Record<string, { name?: string; description?: string }>; // ex: { en: { name, description } }
   barcode?: string; // code-barres / QR du bon, utilisé pour l'ajout auto à l'addition (admin uniquement)
   isPlatDuJour?: boolean; // mis en avant sur la page d'accueil client
+  isPricedByWeight?: boolean; // prix catalogue = prix au Kg, calcul automatique selon le poids saisi
 }
 
 export interface OrderItemOption {
@@ -68,6 +69,7 @@ export interface OrderItem {
   quantity: number;
   notes?: string; // e.g., "Sans oignons", "Bien cuit"
   status: 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'annulee';
+  weightGrams?: number; // poids réel vendu, pour les produits au poids (poisson...)
 }
 
 export type OrderStatus = 'en_attente_validation' | 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'terminee' | 'annulee';
