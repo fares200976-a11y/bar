@@ -57,10 +57,13 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   cartTotal,
 }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
+  const [activeSection, setActiveSection] = useState<'food' | 'bar'>('food');
   const categoryScrollRef = useRef<HTMLDivElement>(null);
   const scrollCategories = (dir: 'left' | 'right') => {
     categoryScrollRef.current?.scrollBy({ left: dir === 'left' ? -220 : 220, behavior: 'smooth' });
   };
+  const sectionCategories = categories.filter((c) => (c.section || 'food') === activeSection);
+  const categorySectionById = new Map(categories.map((c) => [c.id, c.section || 'food']));
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -119,6 +122,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
 
   // Filter menu
   const filteredMenu = menu.filter((item) => {
+    const matchesSection = categorySectionById.get(item.categoryId) === activeSection;
     const matchesCategory = selectedCategoryId === 'all' || item.categoryId === selectedCategoryId;
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -128,7 +132,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       activeDietaryLabels.every((label) => (item.dietaryLabels || []).includes(label));
     const matchesAllergens =
       excludedAllergens.length === 0 || !excludedAllergens.some((alg) => item.allergens.includes(alg));
-    return matchesCategory && matchesSearch && matchesDietary && matchesAllergens;
+    return matchesSection && matchesCategory && matchesSearch && matchesDietary && matchesAllergens;
   });
 
   const activeFilterCount = activeDietaryLabels.length + excludedAllergens.length;
@@ -407,6 +411,36 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         </div>
       )}
 
+      {/* Section Switch : Menu (plats) vs Bar & Alcools */}
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <button
+          onClick={() => {
+            setActiveSection('food');
+            setSelectedCategoryId('all');
+          }}
+          className={`py-3 rounded-2xl text-sm font-bold transition-all ${
+            activeSection === 'food'
+              ? 'bg-[#5A5A40] text-white shadow-md'
+              : 'bg-white dark:bg-[#1C1C16] text-[#9A948C] border border-[#E5E2DD] dark:border-[#33332A]'
+          }`}
+        >
+          🍽️ Menu
+        </button>
+        <button
+          onClick={() => {
+            setActiveSection('bar');
+            setSelectedCategoryId('all');
+          }}
+          className={`py-3 rounded-2xl text-sm font-bold transition-all ${
+            activeSection === 'bar'
+              ? 'bg-[#5A5A40] text-white shadow-md'
+              : 'bg-white dark:bg-[#1C1C16] text-[#9A948C] border border-[#E5E2DD] dark:border-[#33332A]'
+          }`}
+        >
+          🍷 Bar & Alcools
+        </button>
+      </div>
+
       {/* Category Horizontal Slider */}
       <div className="relative mb-6">
         <button
@@ -436,7 +470,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         >
           Tous les produits
         </button>
-        {categories.map((cat) => (
+        {sectionCategories.map((cat) => (
           <button
             key={cat.id}
             onClick={() => setSelectedCategoryId(cat.id)}
@@ -576,6 +610,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                     <div className="flex items-baseline gap-2">
                       <span className="font-serif font-bold text-[#5A5A40] dark:text-[#E2E0D8] text-xl">
                         {formatCurrency(displayPrice, settings.currency)}
+                        {item.isPricedByWeight && <span className="text-xs font-sans font-medium">/Kg</span>}
                       </span>
                       {item.isPromo && item.promoPrice && (
                         <span className="text-xs text-[#9A948C] line-through">
