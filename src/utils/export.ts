@@ -1,13 +1,15 @@
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
-import { Bill, Order, RestaurantSettings } from '../types';
+import { Bill, Category, MenuItem, Order, RestaurantSettings } from '../types';
 import { formatCurrency, formatDateTime, isDrinkOrBeerItem } from './formatters';
 
 export function printThermalReceipt(
   type: 'cuisine' | 'bar' | 'addition',
   order: Order,
   bill?: Bill,
-  settings?: RestaurantSettings
+  settings?: RestaurantSettings,
+  categories: Category[] = [],
+  menu: MenuItem[] = []
 ) {
   const restName = settings?.name || 'GastroBar & Resto';
   const restPhone = settings?.phone || '';
@@ -34,8 +36,8 @@ export function printThermalReceipt(
 
   const printedItems = order.items.filter((item) => {
     if (item.status === 'annulee') return false;
-    if (type === 'cuisine') return !isDrinkOrBeerItem(item);
-    if (type === 'bar') return isDrinkOrBeerItem(item);
+    if (type === 'cuisine') return !isDrinkOrBeerItem(item, categories, menu);
+    if (type === 'bar') return isDrinkOrBeerItem(item, categories, menu);
     return true;
   });
 

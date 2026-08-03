@@ -1,4 +1,4 @@
-import { Category, Order, OrderStatus, TableStatus } from '../types';
+import { Category, MenuItem, Order, OrderStatus, TableStatus } from '../types';
 
 export function formatCurrency(amount: number, currency = 'DA'): string {
   const formatted = Math.round(amount) === amount
@@ -8,16 +8,32 @@ export function formatCurrency(amount: number, currency = 'DA'): string {
 }
 
 export function isDrinkOrBeerItem(
-  item: { name: string; categoryId?: string },
-  categories: Category[] = []
+  item: { name: string; menuItemId?: string; categoryId?: string },
+  categories: Category[] = [],
+  menu: MenuItem[] = []
 ): boolean {
+  // Méthode fiable en priorité : remonter jusqu'à la vraie catégorie du
+  // produit (celle que l'admin gère lui-même via le bouton 🍽️/🍷 dans Carte
+  // & Plats) — bien plus robuste qu'une recherche de mots-clés dans le nom,
+  // qui rate tout produit dont le nom de marque ne contient pas "bière",
+  // "vin"... (ex: "Tango Blonde", "Corona Extra").
+  if (item.menuItemId && menu.length > 0 && categories.length > 0) {
+    const menuItem = menu.find((m) => m.id === item.menuItemId);
+    if (menuItem) {
+      const cat = categories.find((c) => c.id === menuItem.categoryId);
+      if (cat) {
+        return cat.section === 'bar';
+      }
+    }
+  }
+
   const nameLower = item.name.toLowerCase();
 
   const drinkKeywords = [
-    'biere', 'bière', 'beer', 'boisson', 'cocktail', 'jus', 'soda', 'eau', 'café', 'cafe',
+    'biere', 'bière', 'beer', 'cocktail', 'jus', 'soda', 'eau', 'café', 'cafe',
     'thé', 'the', 'chicha', 'mojito', 'pina colada', 'coca', 'fanta', 'sprite', 'red bull',
     'limonade', 'heineken', '1664', 'corona', 'alcool', 'alcol', 'vin', 'champagne', 'whisky',
-    'vodka', 'rhum', 'bar', 'soft', 'glace', 'glaces'
+    'vodka', 'rhum', 'soft', 'glace', 'glaces'
   ];
 
   if (drinkKeywords.some((kw) => nameLower.includes(kw))) {
