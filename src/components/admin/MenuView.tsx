@@ -593,9 +593,23 @@ export const MenuView: React.FC<MenuViewProps> = ({
                 <input
                   type="number"
                   value={formStock}
-                  onChange={(e) => setFormStock(parseInt(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const newStock = parseInt(e.target.value) || 0;
+                    setFormStock(newStock);
+                    // Remet automatiquement en "Disponible" dès que du stock
+                    // est réajouté — sinon on pouvait ajouter du stock et le
+                    // produit restait marqué indisponible sans s'en rendre compte.
+                    if (newStock > 0 && !formAvailable) {
+                      setFormAvailable(true);
+                    }
+                  }}
                   className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
                 />
+                {formStock === 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    Stock à 0 — pense à remonter la quantité si ce produit doit redevenir disponible.
+                  </p>
+                )}
               </div>
 
               <div>
