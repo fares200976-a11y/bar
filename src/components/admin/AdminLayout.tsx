@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Grid,
@@ -12,7 +12,9 @@ import {
   Settings as SettingsIcon,
   LogOut,
   ShieldAlert,
-  Bell
+  Bell,
+  Maximize,
+  Minimize
 } from 'lucide-react';
 import { User } from '../../types';
 
@@ -71,6 +73,24 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
   const allowedItems = navItems.filter((item) => hasAccess(item.id));
 
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleChange);
+    return () => document.removeEventListener('fullscreenchange', handleChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {
+        // certains navigateurs/appareils refusent — pas grave, on ignore simplement
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row font-sans">
       {/* Sidebar Navigation */}
@@ -112,7 +132,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </div>
 
         {/* Footer Logout */}
-        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 mt-6">
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 mt-6 space-y-2">
+          <button
+            onClick={toggleFullscreen}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-black text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            <span>{isFullscreen ? 'Quitter le Plein Écran' : 'Plein Écran'}</span>
+          </button>
           <button
             onClick={onLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-black text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"

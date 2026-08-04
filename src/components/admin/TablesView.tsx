@@ -50,6 +50,36 @@ interface TablesViewProps {
   ) => Promise<{ success: boolean; message?: string }>;
 }
 
+// Petite forme visuelle représentant une vraie table ronde avec ses chaises
+// autour (nombre de chaises = nombre de places), colorée selon le statut.
+const TableShape: React.FC<{ seats: number; colorClass: string }> = ({ seats, colorClass }) => {
+  const chairCount = Math.min(Math.max(seats, 2), 8);
+  const chairs = Array.from({ length: chairCount }, (_, i) => {
+    const angle = (360 / chairCount) * i - 90;
+    const rad = (angle * Math.PI) / 180;
+    const x = 50 + 44 * Math.cos(rad);
+    const y = 50 + 44 * Math.sin(rad);
+    return { x, y };
+  });
+
+  return (
+    <div className="relative w-20 h-20 mx-auto mb-2 shrink-0">
+      {chairs.map((c, i) => (
+        <div
+          key={i}
+          className="absolute w-2.5 h-2.5 rounded-full bg-[#8B6F4E] dark:bg-[#A8876259]"
+          style={{ left: `${c.x}%`, top: `${c.y}%`, transform: 'translate(-50%, -50%)' }}
+        />
+      ))}
+      <div
+        className={`absolute inset-[14%] rounded-full border-[3px] bg-white dark:bg-slate-800 flex items-center justify-center ${colorClass}`}
+      >
+        <UtensilsCrossed className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+      </div>
+    </div>
+  );
+};
+
 export const TablesView: React.FC<TablesViewProps> = ({
   tables,
   orders,
@@ -279,6 +309,18 @@ export const TablesView: React.FC<TablesViewProps> = ({
           const isNewlyOccupied = table.status === 'occupee' && (confirmedOrders.length === 0 || isNewOrder);
           const shouldBlink = isAlarming || hasCall || isPendingValidation || isNewOrder || isNewlyOccupied;
 
+          const shapeColorClass = shouldBlink
+            ? 'border-rose-500'
+            : table.status === 'commande_en_cours'
+            ? 'border-purple-400'
+            : table.status === 'occupee'
+            ? 'border-amber-400'
+            : table.status === 'reservee'
+            ? 'border-blue-400'
+            : table.status === 'en_attente'
+            ? 'border-slate-400'
+            : 'border-emerald-400';
+
           return (
             <div
               key={table.id}
@@ -305,6 +347,8 @@ export const TablesView: React.FC<TablesViewProps> = ({
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 </div>
               ) : null}
+
+              <TableShape seats={table.seats} colorClass={shapeColorClass} />
 
               {/* Table Top Header */}
               <div className="flex items-center justify-between">
