@@ -934,7 +934,15 @@ export const store = {
 
   async updateMenuItemFast(id: string, updates: Partial<MenuItem>): Promise<{ success: boolean; message?: string }> {
     const payload: Record<string, unknown> = {};
-    if (updates.stockQuantity !== undefined) payload.stock_quantity = updates.stockQuantity;
+    if (updates.stockQuantity !== undefined) {
+      payload.stock_quantity = updates.stockQuantity;
+      // Un réappro (bon d'achat) qui ramène du stock doit aussi remettre le
+      // produit disponible — sinon il restait bloqué "indisponible" même
+      // après avoir été réapprovisionné.
+      if (updates.stockQuantity > 0) {
+        payload.is_available = true;
+      }
+    }
     if (updates.price !== undefined) payload.price = updates.price;
     const { error } = await supabase.from('menu_items').update(payload).eq('id', id);
     if (error) return { success: false, message: error.message };
