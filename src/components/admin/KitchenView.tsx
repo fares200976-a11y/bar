@@ -301,13 +301,9 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   ))}
                 </div>
 
-                <button
-                  onClick={() => handleUpdateStatus(ord.id, 'servie')}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg transition-colors cursor-pointer"
-                >
-                  <Utensils className="w-5 h-5" />
-                  <span>MARQUER SERVIE À TABLE</span>
-                </button>
+                <p className="text-center text-xs font-bold text-slate-400 py-2">
+                  En attente que le serveur vienne la chercher — se marque "Servie" depuis l'écran Suivi de Service.
+                </p>
               </div>
             ))
           )}
@@ -316,4 +312,3 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
     </div>
   );
 };
-
