@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChefHat, Clock, CheckCircle2, Printer, Flame, Bell, Utensils, Beer, ShieldAlert } from 'lucide-react';
-import { Category, MenuItem, Order, OrderStatus, RestaurantSettings } from '../../types';
+import { Category, MenuItem, Order, OrderStatus, RestaurantSettings, User } from '../../types';
 import { formatTimeOnly, isDrinkOrBeerItem } from '../../utils/formatters';
 import { printThermalReceipt } from '../../utils/export';
 
@@ -9,6 +9,7 @@ interface KitchenViewProps {
   categories?: Category[];
   menu?: MenuItem[];
   settings: RestaurantSettings;
+  currentUser?: User | null;
   onUpdateOrderStatus: (orderId: string, status: OrderStatus) => Promise<{ success: boolean; message?: string }>;
   onUpdateOrderItemStatus: (
     orderId: string,
@@ -22,14 +23,20 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
   categories = [],
   menu = [],
   settings,
+  currentUser,
   onUpdateOrderStatus,
   onUpdateOrderItemStatus,
 }) => {
+  // Le superviseur voit tout en temps réel mais ne peut faire avancer aucune
+  // commande — uniquement suivre.
+  const isReadOnly = currentUser?.role === 'superviseur';
+
   const [filterType, setFilterType] = useState<'cuisine' | 'bar' | 'tous'>('cuisine');
 
   // Affiche clairement l'erreur si la mise à jour échoue (avant, l'échec était
   // invisible : le bouton avait l'air de "ne rien faire").
   const handleUpdateStatus = async (orderId: string, status: OrderStatus) => {
+    if (isReadOnly) return;
     const result = await onUpdateOrderStatus(orderId, status);
     if (!result.success) {
       alert(result.message || 'Impossible de mettre à jour cette commande. Réessayez.');
@@ -171,6 +178,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 </div>
 
                 {/* Action button: Pass to Preparation */}
+                {!isReadOnly && (
                 <button
                   onClick={() => handleUpdateStatus(ord.id, 'en_preparation')}
                   className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg transition-colors cursor-pointer border border-amber-400"
@@ -178,6 +186,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   <Flame className="w-5 h-5 text-slate-950" />
                   <span>LANCER PRÉPARATION</span>
                 </button>
+                )}
               </div>
             ))
           )}
@@ -244,6 +253,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                 </div>
 
                 {/* Action: Mark as Ready */}
+                {!isReadOnly && (
                 <button
                   onClick={() => handleUpdateStatus(ord.id, 'prete')}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg transition-colors cursor-pointer"
@@ -251,6 +261,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
                   <CheckCircle2 className="w-5 h-5" />
                   <span>MARQUER COMMANDE PRÊTE !</span>
                 </button>
+                )}
               </div>
             ))
           )}
@@ -312,3 +323,4 @@ export const KitchenView: React.FC<KitchenViewProps> = ({
     </div>
   );
 };
+

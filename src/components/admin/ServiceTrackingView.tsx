@@ -1,11 +1,12 @@
 import React from 'react';
 import { Bell, CheckCircle2 } from 'lucide-react';
-import { Order, OrderItem } from '../../types';
+import { Order, OrderItem, User } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 
 interface ServiceTrackingViewProps {
   orders: Order[];
   settings: { currency: string };
+  currentUser?: User | null;
   onMarkItemServed: (
     orderId: string,
     itemId: string,
@@ -23,8 +24,13 @@ interface ServiceRow {
 export const ServiceTrackingView: React.FC<ServiceTrackingViewProps> = ({
   orders,
   settings,
+  currentUser,
   onMarkItemServed,
 }) => {
+  // Le superviseur voit tout en temps réel mais ne peut marquer aucun
+  // article comme servi — uniquement suivre.
+  const isReadOnly = currentUser?.role === 'superviseur';
+
   // Toutes les commandes en cours (pas en attente de validation, pas
   // terminées/annulées) — chaque article devient une ligne à part, pour un
   // suivi article par article, table par table.
@@ -41,6 +47,7 @@ export const ServiceTrackingView: React.FC<ServiceTrackingViewProps> = ({
   const unservedCount = rows.filter((r) => r.item.status !== 'servie').length;
 
   const handleToggleServed = async (row: ServiceRow) => {
+    if (isReadOnly) return;
     const nextStatus = row.item.status === 'servie' ? 'prete' : 'servie';
     const result = await onMarkItemServed(row.orderId, row.item.id, nextStatus);
     if (!result.success) {
@@ -105,17 +112,19 @@ export const ServiceTrackingView: React.FC<ServiceTrackingViewProps> = ({
                   {formatCurrency(row.item.unitPrice * row.item.quantity, settings.currency)}
                 </p>
 
-                <button
-                  onClick={() => handleToggleServed(row)}
-                  className={`w-full mt-3 py-2 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                    isServed
-                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-300'
-                      : 'bg-rose-600 hover:bg-rose-700 text-white'
-                  }`}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{isServed ? 'Remettre en attente' : 'Marquer Servi'}</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => handleToggleServed(row)}
+                    className={`w-full mt-3 py-2 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                      isServed
+                        ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-300'
+                        : 'bg-rose-600 hover:bg-rose-700 text-white'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{isServed ? 'Remettre en attente' : 'Marquer Servi'}</span>
+                  </button>
+                )}
               </div>
             );
           })}
