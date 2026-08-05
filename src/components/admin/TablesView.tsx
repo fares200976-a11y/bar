@@ -17,7 +17,8 @@ import {
   Bell,
   ScanLine,
   ShoppingBasket,
-  Search
+  Search,
+  UtensilsCrossed
 } from 'lucide-react';
 import { Table, Order, Waiter, RestaurantSettings, TableStatus, User, MenuItem, Category } from '../../types';
 import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel, formatElapsedSince } from '../../utils/formatters';
