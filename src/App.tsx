@@ -334,6 +334,47 @@ function getDefaultAdminTab(role: User['role']): AdminTab {
   return 'dashboard'; // admin, manager
 }
 
+// Écran de chargement initial. Si ça traîne (accroc réseau au démarrage,
+// souvent résolu tout seul en quelques secondes désormais), un bouton
+// "Réessayer" apparaît plutôt que de laisser l'utilisateur bloqué sans
+// recours sur un simple spinner.
+function InitialLoadingScreen({ isAuthLoading }: { isAuthLoading: boolean }) {
+  const [showRetry, setShowRetry] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowRetry(true), 8000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
+      <div className="text-center space-y-3 max-w-xs">
+        <div className="w-10 h-10 border-4 border-[#5A5A40] border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Chargement...</p>
+        {showRetry && !isAuthLoading && (
+          <div className="pt-3 space-y-2">
+            <p className="text-[11px] text-slate-400">
+              Ça prend plus de temps que prévu — vérifie ta connexion Internet.
+            </p>
+            <button
+              onClick={async () => {
+                setIsRetrying(true);
+                await store.refresh();
+                setIsRetrying(false);
+              }}
+              disabled={isRetrying}
+              className="px-5 py-2.5 bg-[#5A5A40] hover:bg-[#484833] disabled:opacity-60 text-white rounded-2xl font-semibold text-xs"
+            >
+              {isRetrying ? 'Nouvel essai...' : 'Réessayer'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [appState, setAppState] = useState(store.getState());
 
@@ -635,14 +676,7 @@ export default function App() {
   // Tant que les données Supabase ou la session ne sont pas prêtes, on affiche un
   // écran de chargement plutôt qu'un état intermédiaire potentiellement incohérent.
   if (!appState.loaded || isAuthLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-[#5A5A40] border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Chargement...</p>
-        </div>
-      </div>
-    );
+    return <InitialLoadingScreen isAuthLoading={isAuthLoading} />;
   }
 
   // Mode "borne tactile extérieure" (?kiosk=1) : menu en lecture seule, sans
