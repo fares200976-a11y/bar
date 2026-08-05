@@ -381,13 +381,57 @@ export default function App() {
   // Navigation & View state
   const [currentView, setCurrentView] = useState<'client' | 'admin'>('client');
   const [adminTab, setAdminTab] = useState<AdminTab>('dashboard');
-  const [selectedTableId, setSelectedTableId] = useState<number>(1);
+
+  // Session client persistée : si le client actualise la page (ou ferme et
+  // rouvre l'onglet), il retombe directement sur SA table, sans re-scanner
+  // son code — jusqu'à ce que l'admin encaisse/clôture cette table (voir
+  // l'effet plus bas qui efface la session dès que la table redevient "libre").
+  const CLIENT_SESSION_KEY = 'bar_client_session_v1';
+  const [selectedTableId, setSelectedTableId] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(CLIENT_SESSION_KEY);
+      return raw ? JSON.parse(raw).tableId ?? 1 : 1;
+    } catch {
+      return 1;
+    }
+  });
 
   // Le client n'est considéré comme "arrivé" sur une table que lorsqu'il a explicitement
   // scanné un QR avec un code valide, ou saisi son code à 4 chiffres sur la page d'accueil.
   // Sans ça, on ne doit JAMAIS lui montrer une table par défaut (même si elle est occupée
   // par quelqu'un d'autre par ailleurs).
-  const [clientAccessGranted, setClientAccessGranted] = useState(false);
+  const [clientAccessGranted, setClientAccessGranted] = useState(() => {
+    try {
+      const raw = localStorage.getItem(CLIENT_SESSION_KEY);
+      return raw ? !!JSON.parse(raw).accessGranted : false;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (clientAccessGranted) {
+        localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify({ tableId: selectedTableId, accessGranted: true }));
+      } else {
+        localStorage.removeItem(CLIENT_SESSION_KEY);
+      }
+    } catch {
+      // stockage indisponible — pas grave, juste pas de reprise de session cette fois
+    }
+  }, [selectedTableId, clientAccessGranted]);
+
+  // Dès que l'admin/caissier encaisse et clôture la table (elle redevient
+  // "libre"), la session du client s'efface automatiquement — il repart sur
+  // la page d'accueil pour la prochaine visite, avec un nouveau code PIN.
+  useEffect(() => {
+    if (!appState.loaded || !clientAccessGranted || selectedTableId === 999) return;
+    const table = appState.tables.find((t) => t.id === selectedTableId);
+    if (table && table.status === 'libre') {
+      setClientAccessGranted(false);
+      setCartItems([]);
+    }
+  }, [appState.loaded, appState.tables, selectedTableId, clientAccessGranted]);
 
   // Authentication state — plus d'auto-login admin par défaut : on démarre
   // déconnecté et on restaure une éventuelle session Supabase existante juste après.
