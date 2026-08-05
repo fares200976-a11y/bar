@@ -630,6 +630,18 @@ async function fetchAll(): Promise<void> {
         state = { ...state, isOffline: true };
       }
       notify();
+
+      // Si c'est le tout premier chargement et qu'il échoue (souvent un
+      // simple accroc réseau au démarrage, pas une vraie coupure), on
+      // réessaie vite plutôt que de laisser l'app bloquée sur "Chargement..."
+      // jusqu'à la prochaine boucle de 5 secondes.
+      if (!state.loaded && typeof window !== 'undefined') {
+        setTimeout(() => {
+          fetchInFlight = null;
+          fetchAll();
+        }, 1200);
+      }
+
       return;
     }
 
@@ -798,6 +810,7 @@ export const store = {
   },
 
   async refresh() {
+    fetchInFlight = null;
     await fetchAll();
   },
 
