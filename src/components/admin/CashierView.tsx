@@ -13,7 +13,7 @@ import {
   Search,
   ShoppingBasket,
 } from 'lucide-react';
-import { Bill, Category, MenuItem, Order, PaymentBreakdown, PaymentMethod, RestaurantSettings, Table } from '../../types';
+import { Bill, Category, MenuItem, Order, PaymentBreakdown, PaymentMethod, RestaurantSettings, Table, User } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import { printThermalReceipt } from '../../utils/export';
 import { store } from '../../services/store';
@@ -25,6 +25,7 @@ interface CashierViewProps {
   settings: RestaurantSettings;
   categories: Category[];
   menu: MenuItem[];
+  currentUser?: User | null;
   onAddItemsToTable: (
     tableId: number,
     items: Array<{ menuItem: MenuItem; quantity: number; weightGrams?: number; unitPriceOverride?: number }>
@@ -44,9 +45,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
   settings,
   categories,
   menu,
+  currentUser,
   onAddItemsToTable,
   onProcessPayment,
 }) => {
+  // Le superviseur voit tout en temps réel mais ne peut ni ajouter de
+  // produit, ni encaisser — uniquement suivre.
+  const isReadOnly = currentUser?.role === 'superviseur';
+
   const [selectedTableId, setSelectedTableId] = useState<number>(1);
   const [discountInput, setDiscountInput] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('espèces');
@@ -192,6 +198,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
   }, [menu, activeCategoryId, productSearch]);
 
   const handleAddProduct = async (item: MenuItem) => {
+    if (isReadOnly) return;
     if (item.isPricedByWeight) {
       const gramsStr = prompt(`Poids de "${item.name}" en grammes (prix au Kg : ${formatCurrency(item.price, settings.currency)}) :`);
       if (gramsStr === null) return;
@@ -444,7 +451,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               return (
                 <button
                   key={item.id}
-                  disabled={isUnavailable || addingItemId === item.id}
+                  disabled={isUnavailable || addingItemId === item.id || isReadOnly}
                   onClick={() => handleAddProduct(item)}
                   className={`relative p-3 rounded-2xl border text-left transition-all active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                     addingItemId === item.id
@@ -469,14 +476,22 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
         {/* ---------------- Colonne Clavier + Paiement ---------------- */}
         <div className="xl:col-span-4 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-4">
-          {!hasActiveOrders ? (
+          {isReadOnly ? (
+            <div className="text-center py-16 text-slate-400 space-y-2 m-auto">
+              <ShoppingBasket className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                Mode suivi uniquement — l'encaissement n'est pas accessible à ce compte.
+              </p>
+            </div>
+          ) : !hasActiveOrders ? (
             <div className="text-center py-16 text-slate-400 space-y-2 m-auto">
               <ShoppingBasket className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
               <p className="text-xs text-slate-400">
                 Sélectionnez une table avec des consommations pour encaisser.
               </p>
             </div>
-          ) : (
+          ) : null}
+          {!isReadOnly && hasActiveOrders && (
             <>
               {/* Modes de paiement — grandes tuiles tactiles */}
               <div>

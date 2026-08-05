@@ -54,6 +54,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     if (role === 'cuisinier') return tab === 'kitchen' || tab === 'menu';
     if (role === 'caissier') return tab === 'cashier' || tab === 'tables' || tab === 'history';
     if (role === 'serveur') return tab === 'tables' || tab === 'service' || tab === 'kitchen' || tab === 'reservations';
+    if (role === 'superviseur') return tab === 'dashboard' || tab === 'tables' || tab === 'service' || tab === 'kitchen' || tab === 'cashier';
     return true;
   };
 

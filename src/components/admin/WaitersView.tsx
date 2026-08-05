@@ -29,6 +29,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   serveur: 'Serveur',
   cuisinier: 'Cuisinier',
   caissier: 'Caissier',
+  superviseur: 'Superviseur (suivi seul)',
 };
 
 const ROLE_BADGE_CLASSES: Record<UserRole, string> = {
@@ -37,6 +38,7 @@ const ROLE_BADGE_CLASSES: Record<UserRole, string> = {
   serveur: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
   cuisinier: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
   caissier: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  superviseur: 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-300',
 };
 
 function generatePin(): string {
@@ -100,7 +102,7 @@ export const WaitersView: React.FC<WaitersViewProps> = ({
       name: formName.trim(),
       role: formRole,
       phone: formPhone.trim() || undefined,
-      pinCode: formRole === 'serveur' ? formPin : undefined,
+      pinCode: (formRole === 'serveur' || formRole === 'superviseur') ? formPin : undefined,
     };
 
     setIsCreating(true);
@@ -129,7 +131,7 @@ export const WaitersView: React.FC<WaitersViewProps> = ({
 
     onUpdateUser(editingUser.id, { name: editName, phone: editPhone });
 
-    if (editingUser.role === 'serveur') {
+    if (editingUser.role === 'serveur' || editingUser.role === 'superviseur') {
       onUpdateWaiter(editingUser.id, { pinCode: editPin, assignedTableIds: editTables });
     }
 
@@ -163,7 +165,7 @@ export const WaitersView: React.FC<WaitersViewProps> = ({
 
       {/* Filtre par rôle */}
       <div className="flex flex-wrap items-center gap-2">
-        {(['tous', 'admin', 'manager', 'serveur', 'cuisinier', 'caissier'] as const).map((r) => (
+        {(['tous', 'admin', 'manager', 'serveur', 'cuisinier', 'caissier', 'superviseur'] as const).map((r) => (
           <button
             key={r}
             onClick={() => setRoleFilter(r)}
@@ -221,7 +223,7 @@ export const WaitersView: React.FC<WaitersViewProps> = ({
                 {ROLE_LABELS[u.role]}
               </span>
 
-              {u.role === 'serveur' && (
+              {(u.role === 'serveur' || u.role === 'superviseur') && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/50 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-bold text-xs">
                     <KeyRound className="w-4 h-4 text-amber-600" />
@@ -233,7 +235,7 @@ export const WaitersView: React.FC<WaitersViewProps> = ({
                 </div>
               )}
 
-              {u.role === 'serveur' && (
+              {(u.role === 'serveur' || u.role === 'superviseur') && (
                 <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60">
                   <span className="text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">
                     Tables Affectées ({waiter?.assignedTableIds.length || 0})
@@ -337,7 +339,7 @@ export const WaitersView: React.FC<WaitersViewProps> = ({
                 />
               </div>
 
-              {formRole === 'serveur' && (
+              {(formRole === 'serveur' || formRole === 'superviseur') && (
                 <div>
                   <label className="font-extrabold text-slate-800 dark:text-slate-200">Code PIN (connexion rapide) :</label>
                   <div className="flex items-center gap-2 mt-1">
@@ -411,7 +413,7 @@ export const WaitersView: React.FC<WaitersViewProps> = ({
                 />
               </div>
 
-              {editingUser.role === 'serveur' && (
+              {(editingUser.role === 'serveur' || editingUser.role === 'superviseur') && (
                 <>
                   <div>
                     <label className="font-extrabold text-slate-800 dark:text-slate-200">Code PIN :</label>
