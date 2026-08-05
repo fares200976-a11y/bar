@@ -934,6 +934,7 @@ export default function App() {
               categories={appState.categories}
               menu={appState.menu}
               settings={appState.settings}
+              currentUser={currentUser}
               onUpdateOrderStatus={(oId, st) => store.updateOrderStatus(oId, st)}
               onUpdateOrderItemStatus={(oId, iId, st) => store.updateOrderItemStatus(oId, iId, st)}
             />
@@ -943,6 +944,7 @@ export default function App() {
             <ServiceTrackingView
               orders={appState.orders}
               settings={appState.settings}
+              currentUser={currentUser}
               onMarkItemServed={(oId, iId, nextStatus) => store.updateOrderItemStatus(oId, iId, nextStatus)}
             />
           )}
@@ -954,6 +956,7 @@ export default function App() {
               settings={appState.settings}
               categories={appState.categories}
               menu={appState.menu}
+              currentUser={currentUser}
               onAddItemsToTable={(tId, items) => store.addItemsToTable(tId, items)}
               onProcessPayment={(tableId, method, disc, cash, breakdown) =>
                 store.processTablePayment(tableId, method, disc, cash, breakdown)
