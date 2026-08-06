@@ -521,6 +521,54 @@ export const TablesView: React.FC<TablesViewProps> = ({
               </>
             )}
 
+            {!showProductPicker && (
+              <div className="flex-1 overflow-y-auto p-6">
+                <p className="text-xs font-black text-slate-400 uppercase mb-4">Détail de la commande — statut par article</p>
+                {selectedTableConfirmedOrders.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic">Aucune commande en cours sur cette table.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {selectedTableConfirmedOrders.flatMap((order) =>
+                      order.items
+                        .filter((it) => it.status !== 'annulee')
+                        .map((it) => {
+                          const isServed = it.status === 'servie';
+                          const isReady = it.status === 'prete';
+                          return (
+                            <div
+                              key={it.id}
+                              className={`rounded-2xl p-4 border-2 ${
+                                isServed
+                                  ? 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60'
+                                  : isReady
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400'
+                                  : 'bg-amber-50 dark:bg-amber-950/30 border-amber-400'
+                              }`}
+                            >
+                              <p className={`text-sm font-extrabold text-slate-900 dark:text-white ${isServed ? 'line-through' : ''}`}>
+                                {it.quantity}x {it.name}
+                              </p>
+                              <p className="text-[10px] text-slate-400 mb-2">Commande #{order.orderNumber}</p>
+                              <span
+                                className={`text-[10px] font-black px-2.5 py-1 rounded-lg ${
+                                  isServed
+                                    ? 'bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                    : isReady
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-amber-500 text-slate-950'
+                                }`}
+                              >
+                                {isServed ? '✓ Servi' : isReady ? '✓ Prête — en attente de service' : '🔥 En cuisine'}
+                              </span>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Ticket + actions */}
             <div className="shrink-0 lg:w-96 overflow-y-auto p-4 bg-white dark:bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 space-y-4">
               {canQuickAdd && (
