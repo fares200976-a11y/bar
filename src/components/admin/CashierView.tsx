@@ -345,6 +345,8 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     <p className="text-[10px] font-black text-slate-400 uppercase">Commande #{ord.orderNumber}</p>
                     {ord.items.map((item) => {
                       const isCancelled = item.status === 'annulee';
+                      const menuItem = menu.find((m) => m.id === item.menuItemId);
+                      const needsWeighing = menuItem?.isPricedByWeight && !item.weightGrams && !isCancelled;
                       return (
                         <div
                           key={item.id}
@@ -353,10 +355,32 @@ export const CashierView: React.FC<CashierViewProps> = ({
                           <span className={`font-bold text-slate-800 dark:text-slate-200 ${isCancelled ? 'line-through' : ''}`}>
                             {item.quantity}x {item.name}
                             {isCancelled && <span className="ml-1.5 text-rose-500">(Annulé)</span>}
+                            {needsWeighing && <span className="ml-1.5 text-amber-600 font-bold">⚖️ à peser</span>}
                           </span>
-                          <span className={`font-extrabold text-slate-900 dark:text-white shrink-0 pl-2 ${isCancelled ? 'line-through' : ''}`}>
-                            {formatCurrency(item.unitPrice * item.quantity, settings.currency)}
-                          </span>
+                          {needsWeighing ? (
+                            <button
+                              onClick={async () => {
+                                const gramsStr = prompt(
+                                  `Poids réel de "${menuItem?.name}" en grammes (prix au Kg : ${formatCurrency(menuItem?.price || 0, settings.currency)}) :`
+                                );
+                                if (gramsStr === null) return;
+                                const grams = parseInt(gramsStr, 10);
+                                if (!grams || grams <= 0) {
+                                  alert('Poids invalide.');
+                                  return;
+                                }
+                                const result = await store.setOrderItemWeight(ord.id, item.id, grams);
+                                if (!result.success) alert(result.message || 'Échec.');
+                              }}
+                              className="shrink-0 ml-2 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black text-xs cursor-pointer"
+                            >
+                              ⚖️ Peser
+                            </button>
+                          ) : (
+                            <span className={`font-extrabold text-slate-900 dark:text-white shrink-0 pl-2 ${isCancelled ? 'line-through' : ''}`}>
+                              {formatCurrency(item.unitPrice * item.quantity, settings.currency)}
+                            </span>
+                          )}
                         </div>
                       );
                     })}

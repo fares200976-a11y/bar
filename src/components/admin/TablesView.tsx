@@ -107,6 +107,10 @@ export const TablesView: React.FC<TablesViewProps> = ({
   const [clientNameDraft, setClientNameDraft] = useState('');
   const [savingClientName, setSavingClientName] = useState(false);
   const [productGroupFilter, setProductGroupFilter] = useState<'all' | 'biere' | 'vin' | 'plat' | 'digestif' | 'boisson'>('all');
+  // La grille produits est masquée par défaut à l'ouverture d'une table —
+  // l'admin/serveur voit d'abord uniquement le ticket, et clique sur
+  // "Ajouter un produit" pour la faire apparaître.
+  const [showProductPicker, setShowProductPicker] = useState(false);
   const [productSearchFS, setProductSearchFS] = useState('');
   const [addingItemIdFS, setAddingItemIdFS] = useState<string | null>(null);
 
@@ -327,7 +331,10 @@ export const TablesView: React.FC<TablesViewProps> = ({
           return (
             <div
               key={table.id}
-              onClick={() => setSelectedTable(table)}
+              onClick={() => {
+                setSelectedTable(table);
+                setShowProductPicker(false);
+              }}
               className={`bg-white dark:bg-slate-900 rounded-3xl p-5 border-2 transition-all cursor-pointer relative overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-1 ${
                 shouldBlink
                   ? 'border-rose-500 bg-rose-50/80 dark:bg-rose-950/40 animate-pulse ring-4 ring-rose-500/50 shadow-xl'
@@ -448,7 +455,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
           {/* Body: sidebar groupes | grille produits | ticket & actions */}
           <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-            {canQuickAdd && (
+            {canQuickAdd && showProductPicker && (
               <>
             {/* Sidebar : groupes rapides Bière / Vin / Plat / Digestifs */}
             <div className="shrink-0 lg:w-44 flex lg:flex-col gap-2 overflow-x-auto lg:overflow-y-auto p-3 bg-white dark:bg-slate-900 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800">
@@ -516,6 +523,20 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
             {/* Ticket + actions */}
             <div className="shrink-0 lg:w-96 overflow-y-auto p-4 bg-white dark:bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 space-y-4">
+              {canQuickAdd && (
+                <button
+                  onClick={() => setShowProductPicker(!showProductPicker)}
+                  className={`w-full py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                    showProductPicker
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-md'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{showProductPicker ? 'Masquer les produits' : 'Ajouter un produit'}</span>
+                </button>
+              )}
+
               {/* 4-digit PIN Code Banner */}
               <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/50 flex items-center justify-between">
                 <div>
@@ -661,16 +682,40 @@ export const TablesView: React.FC<TablesViewProps> = ({
                       <p className="text-[10px] font-black text-slate-400 uppercase">Commande #{order.orderNumber}</p>
                       {order.items.map((it) => {
                         const isCancelled = it.status === 'annulee';
+                        const menuItem = menu.find((m) => m.id === it.menuItemId);
+                        const needsWeighing = menuItem?.isPricedByWeight && !it.weightGrams && !isCancelled;
                         return (
                           <div key={it.id} className={`flex justify-between items-center py-0.5 gap-2 ${isCancelled ? 'opacity-50' : ''}`}>
                             <span className={`text-sm font-bold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
                               {it.quantity}x {it.name}
                               {isCancelled && <span className="ml-1.5 text-rose-500 font-bold text-xs">(Annulé)</span>}
+                              {needsWeighing && <span className="ml-1.5 text-amber-600 font-bold text-xs">⚖️ à peser</span>}
                             </span>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className={`text-xs font-extrabold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
-                                {formatCurrency(it.unitPrice * it.quantity, settings.currency)}
-                              </span>
+                              {needsWeighing ? (
+                                <button
+                                  onClick={async () => {
+                                    const gramsStr = prompt(
+                                      `Poids réel de "${menuItem?.name}" en grammes (prix au Kg : ${formatCurrency(menuItem?.price || 0, settings.currency)}) :`
+                                    );
+                                    if (gramsStr === null) return;
+                                    const grams = parseInt(gramsStr, 10);
+                                    if (!grams || grams <= 0) {
+                                      alert('Poids invalide.');
+                                      return;
+                                    }
+                                    const result = await store.setOrderItemWeight(order.id, it.id, grams);
+                                    if (!result.success) alert(result.message || 'Échec.');
+                                  }}
+                                  className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black text-xs cursor-pointer"
+                                >
+                                  ⚖️ Peser
+                                </button>
+                              ) : (
+                                <span className={`text-xs font-extrabold text-slate-900 dark:text-white ${isCancelled ? 'line-through' : ''}`}>
+                                  {formatCurrency(it.unitPrice * it.quantity, settings.currency)}
+                                </span>
+                              )}
                               {!isCancelled && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
                                 <button
                                   onClick={async () => {
