@@ -96,30 +96,42 @@ export const ServiceTrackingView: React.FC<ServiceTrackingViewProps> = ({
               </span>
 
               <div className="space-y-2">
-                {group.rows.map((row) => (
-                  <div
-                    key={row.item.id}
-                    className="bg-white/70 dark:bg-slate-900/50 rounded-xl p-2.5 flex items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
-                        {row.item.quantity}x {row.item.name}
-                      </p>
-                      <p className="text-[10px] text-slate-400">
-                        Cmd #{row.orderNumber} • {formatCurrency(row.item.unitPrice * row.item.quantity, settings.currency)}
-                      </p>
+                {group.rows.map((row) => {
+                  const isReady = row.item.status === 'prete';
+                  return (
+                    <div
+                      key={row.item.id}
+                      className="bg-white/70 dark:bg-slate-900/50 rounded-xl p-2.5 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
+                          {row.item.quantity}x {row.item.name}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          Cmd #{row.orderNumber} • {formatCurrency(row.item.unitPrice * row.item.quantity, settings.currency)}
+                        </p>
+                      </div>
+                      {isReady ? (
+                        !isReadOnly && (
+                          <button
+                            onClick={() => handleMarkServed(row)}
+                            className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg font-black text-[11px] bg-rose-600 hover:bg-rose-700 text-white cursor-pointer transition-colors"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Servi</span>
+                          </button>
+                        )
+                      ) : (
+                        <span
+                          className="shrink-0 px-2.5 py-1.5 rounded-lg font-black text-[10px] bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400"
+                          title="Doit d'abord être marqué prêt par la cuisine avant de pouvoir être servi"
+                        >
+                          🔥 En cuisine
+                        </span>
+                      )}
                     </div>
-                    {!isReadOnly && (
-                      <button
-                        onClick={() => handleMarkServed(row)}
-                        className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg font-black text-[11px] bg-rose-600 hover:bg-rose-700 text-white cursor-pointer transition-colors"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Servi</span>
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
