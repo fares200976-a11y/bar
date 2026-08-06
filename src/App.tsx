@@ -658,31 +658,19 @@ export default function App() {
     // validée via son code QR à 4 chiffres (voir isSelectedTableVerified).
     if (!isSelectedTableVerified) return;
 
-    if (item.isPricedByWeight) {
-      const gramsStr = prompt(
-        `Poids souhaité de "${item.name}" en grammes (prix au Kg : ${item.price} ${appState.settings.currency}) :`
-      );
-      if (gramsStr === null) return;
-      const grams = parseInt(gramsStr, 10);
-      if (!grams || grams <= 0) {
-        alert('Poids invalide.');
-        return;
-      }
-      // Chaque pesée est une ligne à part (poids potentiellement différent
-      // d'une fois à l'autre) — pas de fusion avec une entrée existante.
-      setCartItems([...cartItems, { menuItem: item, quantity: 1, notes, weightGrams: grams }]);
-      return;
-    }
+    // Les produits vendus au poids (poisson...) ne demandent PAS le poids au
+    // client (il n'a pas de balance) — l'admin/serveur pèsera et indiquera
+    // le poids réel une fois la commande arrivée sur le ticket.
+    const existingIndex = item.isPricedByWeight
+      ? -1 // chaque commande de produit au poids est une ligne à part
+      : cartItems.findIndex((c) => c.menuItem.id === item.id && c.notes === notes && !c.weightGrams);
 
-    const existingIndex = cartItems.findIndex(
-      (c) => c.menuItem.id === item.id && c.notes === notes && !c.weightGrams
-    );
     if (existingIndex > -1) {
       const updated = [...cartItems];
       updated[existingIndex].quantity += quantity;
       setCartItems(updated);
     } else {
-      setCartItems([...cartItems, { menuItem: item, quantity, notes }]);
+      setCartItems([...cartItems, { menuItem: item, quantity: item.isPricedByWeight ? 1 : quantity, notes }]);
     }
   };
 
