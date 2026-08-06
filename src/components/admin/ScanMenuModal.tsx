@@ -106,7 +106,7 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
 
       if (!categoryId) {
         const catNameLower = item.category.toLowerCase();
-        const guessedSection: 'food' | 'bar' =
+        const isBar =
           catNameLower.includes('bière') ||
           catNameLower.includes('biere') ||
           catNameLower.includes('vin') ||
@@ -114,9 +114,20 @@ export const ScanMenuModal: React.FC<ScanMenuModalProps> = ({ categories, onClos
           catNameLower.includes('whiskey') ||
           catNameLower.includes('digestif') ||
           catNameLower.includes('alcool') ||
-          catNameLower.includes('cocktail')
-            ? 'bar'
-            : 'food';
+          catNameLower.includes('cocktail');
+        const isDrinks =
+          !isBar &&
+          (catNameLower.includes('boisson') ||
+            catNameLower.includes('jus') ||
+            catNameLower.includes('soda') ||
+            catNameLower.includes('café') ||
+            catNameLower.includes('cafe') ||
+            catNameLower.includes('thé') ||
+            catNameLower.includes('the ') ||
+            catNameLower.includes('limonade') ||
+            catNameLower.includes('eau') ||
+            catNameLower.includes('coca'));
+        const guessedSection: 'food' | 'drinks' | 'bar' = isBar ? 'bar' : isDrinks ? 'drinks' : 'food';
         const result = await store.addCategoryFast(item.category.trim() || 'Autre', guessedSection);
         if (result.success && result.id) {
           categoryId = result.id;

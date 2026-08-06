@@ -35,7 +35,7 @@ interface MenuViewProps {
   categories: Category[];
   menu: MenuItem[];
   settings: RestaurantSettings;
-  onAddCategory: (name: string, icon?: string, section?: 'food' | 'bar') => void;
+  onAddCategory: (name: string, icon?: string, section?: 'food' | 'drinks' | 'bar') => void;
   onDeleteCategory: (id: string) => Promise<{ success: boolean; message?: string }>;
   onAddMenuItem: (item: Omit<MenuItem, 'id'>) => void;
   onUpdateMenuItem: (id: string, updates: Partial<MenuItem>) => void;
@@ -57,7 +57,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [selectedCatId, setSelectedCatId] = useState<string>('all');
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCatName, setNewCatName] = useState('');
-  const [newCatSection, setNewCatSection] = useState<'food' | 'bar'>('food');
+  const [newCatSection, setNewCatSection] = useState<'food' | 'drinks' | 'bar'>('food');
   const [showPriceTable, setShowPriceTable] = useState(false);
   const [showScanMenu, setShowScanMenu] = useState(false);
   const [showScanInvoice, setShowScanInvoice] = useState(false);
@@ -101,6 +101,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   const [formIsRecommended, setFormIsRecommended] = useState(false);
   const [formIsPlatDuJour, setFormIsPlatDuJour] = useState(false);
   const [formIsPricedByWeight, setFormIsPricedByWeight] = useState(false);
+  const [formIsHidden, setFormIsHidden] = useState(false);
   const [formIsSpicy, setFormIsSpicy] = useState(false);
   const [formAllergens, setFormAllergens] = useState<string>('');
   const [formDietaryLabels, setFormDietaryLabels] = useState<string[]>([]);
@@ -122,6 +123,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsRecommended(false);
     setFormIsPlatDuJour(false);
     setFormIsPricedByWeight(false);
+    setFormIsHidden(false);
     setFormIsSpicy(false);
     setFormAllergens('Gluten, Lait');
     setFormDietaryLabels([]);
@@ -145,6 +147,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
     setFormIsRecommended(Boolean(item.isRecommended));
     setFormIsPlatDuJour(Boolean(item.isPlatDuJour));
     setFormIsPricedByWeight(Boolean(item.isPricedByWeight));
+    setFormIsHidden(Boolean(item.isHidden));
     setFormIsSpicy(Boolean(item.isSpicy));
     setFormAllergens(item.allergens.join(', '));
     setFormDietaryLabels(item.dietaryLabels || []);
@@ -168,6 +171,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
       isRecommended: formIsRecommended,
       isPlatDuJour: formIsPlatDuJour,
       isPricedByWeight: formIsPricedByWeight,
+      isHidden: formIsHidden,
       isSpicy: formIsSpicy,
       allergens: formAllergens
         .split(',')
@@ -322,13 +326,19 @@ export const MenuView: React.FC<MenuViewProps> = ({
 
               <button
                 onClick={async () => {
-                  const next = cat.section === 'bar' ? 'food' : 'bar';
+                  const next = cat.section === 'food' ? 'drinks' : cat.section === 'drinks' ? 'bar' : 'food';
                   await store.updateCategorySection(cat.id, next);
                 }}
                 className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-sm"
-                title={cat.section === 'bar' ? 'Dans "Bar & Alcools" — cliquer pour basculer vers "Menu"' : 'Dans "Menu" — cliquer pour basculer vers "Bar & Alcools"'}
+                title={
+                  cat.section === 'bar'
+                    ? 'Dans "Bar & Alcools" — cliquer pour basculer vers "Menu"'
+                    : cat.section === 'drinks'
+                    ? 'Dans "Boissons" — cliquer pour basculer vers "Bar & Alcools"'
+                    : 'Dans "Menu" — cliquer pour basculer vers "Boissons"'
+                }
               >
-                {cat.section === 'bar' ? '🍷' : '🍽️'}
+                {cat.section === 'bar' ? '🍷' : cat.section === 'drinks' ? '🥤' : '🍽️'}
               </button>
 
               <button
@@ -474,7 +484,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                 Cette catégorie apparaît dans quelle page côté client ?
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setNewCatSection('food')}
@@ -484,7 +494,18 @@ export const MenuView: React.FC<MenuViewProps> = ({
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                   }`}
                 >
-                  🍽️ Menu (plats)
+                  🍽️ Menu
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewCatSection('drinks')}
+                  className={`py-2.5 rounded-2xl text-xs font-black transition-colors cursor-pointer ${
+                    newCatSection === 'drinks'
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  🥤 Boissons
                 </button>
                 <button
                   type="button"
@@ -755,6 +776,16 @@ export const MenuView: React.FC<MenuViewProps> = ({
                     className="rounded text-rose-600 focus:ring-rose-500"
                   />
                   <span>⚖️ Vendu au poids (poisson...) — le prix ci-dessus devient le prix au Kg</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formIsHidden}
+                    onChange={(e) => setFormIsHidden(e.target.checked)}
+                    className="rounded text-rose-600 focus:ring-rose-500"
+                  />
+                  <span>🙈 Masquer ce produit (invisible pour le client, différent de "indisponible")</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">
