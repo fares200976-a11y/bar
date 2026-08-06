@@ -1,92 +1,207 @@
-// Supabase Edge Function : login-by-pin
-//
-// Connexion rapide serveur par QR Code (?waiterPin=2001), mais SÉCURISÉE :
-// contrairement à la première version de l'app qui se contentait d'afficher
-// l'interface sans vraie authentification, ici :
-//   1. Le PIN est vérifié côté serveur (jamais exposé/comparé côté navigateur).
-//   2. Une vraie session Supabase Auth est émise via un "magic link" généré
-//      par l'API admin, que le client échange ensuite avec verifyOtp().
-// Résultat : après un scan PIN réussi, auth.uid() fonctionne normalement dans
-// toutes les policies RLS / fonctions RPC, exactement comme un login classique.
-//
-// Déploiement : supabase functions deploy login-by-pin
+export type UserRole = 'admin' | 'manager' | 'serveur' | 'cuisinier' | 'caissier' | 'superviseur';
 
-import { createClient } from 'npm:@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-function jsonResponse(body: Record<string, unknown>, status: number) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+export interface User {
+  id: string; // correspond à auth.users.id (UUID Supabase)
+  name: string;
+  username: string;
+  role: UserRole;
+  phone?: string;
+  avatar?: string;
+  active: boolean;
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+export type TableStatus = 'libre' | 'occupee' | 'reservee' | 'en_attente' | 'commande_en_cours';
 
-  try {
-    if (req.method !== 'POST') {
-      return jsonResponse({ error: 'Méthode non autorisée.' }, 405);
-    }
+export interface Table {
+  id: number;
+  number: number;
+  name: string; // e.g. "Table 1"
+  status: TableStatus;
+  seats: number;
+  accessCode?: string; // 4-digit PIN code dynamically generated for QR scan
+  assignedWaiterId?: string;
+  activeOrderId?: string;
+  occupiedSince?: string; // ISO — maintenu automatiquement côté base (trigger)
+  clientName?: string;
+}
 
-    const { pinCode } = (await req.json()) as { pinCode?: string };
+export interface Category {
+  id: string;
+  name: string;
+  icon?: string;
+  order: number;
+  section: 'food' | 'drinks' | 'bar';
+}
 
-    if (!pinCode || !/^\d{4}$/.test(pinCode)) {
-      return jsonResponse({ error: 'Code PIN à 4 chiffres requis.' }, 400);
-    }
+export interface MenuItem {
+  id: string;
+  categoryId: string;
+  name: string;
+  description: string;
+  price: number;
+  images: string[];
+  videoUrl?: string;
+  prepTimeMinutes: number; // e.g., 15
+  isAvailable: boolean;
+  stockQuantity: number;
+  isPromo?: boolean;
+  promoPrice?: number;
+  isRecommended?: boolean;
+  isSpicy?: boolean;
+  allergens: string[]; // e.g., ['Gluten', 'Lait', 'Arachides']
+  dietaryLabels?: string[]; // e.g., ['Végétarien', 'Vegan', 'Sans Gluten', 'Fait Maison']
+  translations?: Record<string, { name?: string; description?: string }>; // ex: { en: { name, description } }
+  barcode?: string; // code-barres / QR du bon, utilisé pour l'ajout auto à l'addition (admin uniquement)
+  isPlatDuJour?: boolean; // mis en avant sur la page d'accueil client
+  isPricedByWeight?: boolean; // prix catalogue = prix au Kg, calcul automatique selon le poids saisi
+  isHidden?: boolean; // masqué du menu client (distinct de "indisponible" — invisible, pas juste en rupture)
+}
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+export interface OrderItemOption {
+  name: string;
+  price: number;
+}
 
-    // Le PIN n'identifie que les comptes serveur ou superviseur actifs —
-    // jamais admin/manager/caissier/cuisinier (eux se connectent par
-    // identifiant + mot de passe classique).
-    const { data: profile, error: profileError } = await adminClient
-      .from('profiles')
-      .select('id, active, role')
-      .eq('pin_code', pinCode)
-      .in('role', ['serveur', 'superviseur'])
-      .maybeSingle();
+export interface OrderItem {
+  id: string;
+  menuItemId: string;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  notes?: string; // e.g., "Sans oignons", "Bien cuit"
+  status: 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'annulee';
+  weightGrams?: number; // poids réel vendu, pour les produits au poids (poisson...)
+}
 
-    if (profileError || !profile) {
-      return jsonResponse({ error: 'Code PIN invalide.' }, 401);
-    }
+export type OrderStatus = 'en_attente_validation' | 'nouvelle' | 'en_preparation' | 'prete' | 'servie' | 'terminee' | 'annulee';
 
-    if (!profile.active) {
-      return jsonResponse({ error: 'Ce compte a été désactivé. Contactez un administrateur.' }, 403);
-    }
+export interface Order {
+  id: string;
+  orderNumber: number;
+  tableId: number;
+  waiterId?: string;
+  items: OrderItem[];
+  status: OrderStatus;
+  createdAt: string; // ISO string
+  updatedAt: string;
+  specialRequests?: string;
+  callWaiterRequest?: boolean;
+  requestBill?: boolean;
+  billRequestedAt?: string;
+  confirmedByWaiterId?: string; // serveur qui a validé la commande vers la cuisine
+  confirmedAt?: string;
+  orderType?: 'sur_place' | 'emporter';
+}
 
-    const { data: authUser, error: authError } = await adminClient.auth.admin.getUserById(profile.id);
-    if (authError || !authUser?.user?.email) {
-      return jsonResponse({ error: 'Compte introuvable.' }, 401);
-    }
+export interface SatisfactionReview {
+  id: string;
+  tableId?: number;
+  orderId?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+}
 
-    const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-      type: 'magiclink',
-      email: authUser.user.email,
-    });
+export type PaymentMethod = 'espèces' | 'carte' | 'mobile' | 'partagé';
 
-    if (linkError || !linkData?.properties?.hashed_token) {
-      return jsonResponse({ error: 'Impossible de générer la session.' }, 500);
-    }
+export interface PaymentBreakdown {
+  method: Exclude<PaymentMethod, 'partagé'>;
+  amount: number;
+}
 
-    return jsonResponse(
-      {
-        success: true,
-        email: authUser.user.email,
-        tokenHash: linkData.properties.hashed_token,
-      },
-      200
-    );
-  } catch (err) {
-    return jsonResponse({ error: (err as Error).message || 'Erreur interne.' }, 500);
-  }
-});
+export interface Bill {
+  id: string;
+  orderId: string;
+  tableId: number;
+  subtotal: number;
+  taxRate: number; // percentage, e.g. 10
+  taxAmount: number;
+  serviceRate: number; // percentage, e.g. 5
+  serviceAmount: number;
+  discountAmount: number;
+  total: number;
+  paymentMethod: PaymentMethod;
+  paymentsBreakdown?: PaymentBreakdown[];
+  cashReceived?: number;
+  changeGiven?: number;
+  paidAt: string;
+  processedByUserId?: string;
+}
+
+export interface Reservation {
+  id: string;
+  tableId?: number; // absent tant que le staff n'a pas assigné de table (demande client)
+  clientName: string;
+  clientPhone: string;
+  guestCount: number;
+  dateTime: string; // ISO string or format YYYY-MM-DD HH:mm
+  notes?: string;
+  status: 'confirmée' | 'annulée' | 'honorée';
+}
+
+export interface Waiter {
+  id: string;
+  name: string;
+  photo: string;
+  pinCode?: string; // 4-digit special access PIN code
+  phone: string;
+  isOnline: boolean;
+  assignedTableIds: number[];
+}
+
+export interface RestaurantSettings {
+  name: string;
+  logo: string;
+  address: string;
+  phone: string;
+  email: string;
+  openingHours: string;
+  currency: string; // e.g. "€" or "MAD" or "FCFA"
+  vatRate: number; // e.g. 10
+  serviceRate: number; // e.g. 5
+  primaryColor: string; // hex string e.g. "#e11d48"
+  bgStyle: 'clean' | 'warm' | 'dark_luxury';
+  firebaseConfig?: {
+    apiKey: string;
+    authDomain: string;
+    projectId: string;
+  };
+  cloudinaryCloudName?: string;
+  alarmSoundType?: string;
+  customAudioUrl?: string;
+  enableLoopAlarm?: boolean;
+  alarmVolume?: number;
+  latitude?: number;
+  longitude?: number;
+}
+
+export interface CashRegisterClosing {
+  id: string;
+  closedByUserId?: string;
+  periodStart: string;
+  periodEnd: string;
+  openingFloat: number;
+  expectedCash: number;
+  declaredCash: number;
+  difference: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface CallNotification {
+  id: string;
+  tableId: number;
+  type: 'waiter_call' | 'bill_request' | 'new_order' | 'kitchen_ready';
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
+
+export interface ActiveAlarm {
+  id: string;
+  tableId: number;
+  orderNumber?: number;
+  message: string;
+  type: 'new_order' | 'waiter_call' | 'bill_request';
+  timestamp: string;
+}
