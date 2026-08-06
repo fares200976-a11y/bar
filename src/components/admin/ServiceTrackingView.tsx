@@ -1,10 +1,12 @@
 import React from 'react';
 import { Bell, CheckCircle2 } from 'lucide-react';
-import { Order, OrderItem, User } from '../../types';
-import { formatCurrency } from '../../utils/formatters';
+import { Category, MenuItem, Order, OrderItem, User } from '../../types';
+import { formatCurrency, isDrinkOrBeerItem } from '../../utils/formatters';
 
 interface ServiceTrackingViewProps {
   orders: Order[];
+  menu?: MenuItem[];
+  categories?: Category[];
   settings: { currency: string };
   currentUser?: User | null;
   onMarkItemServed: (
@@ -27,6 +29,8 @@ interface TableGroup {
 
 export const ServiceTrackingView: React.FC<ServiceTrackingViewProps> = ({
   orders,
+  menu = [],
+  categories = [],
   settings,
   currentUser,
   onMarkItemServed,
@@ -97,7 +101,8 @@ export const ServiceTrackingView: React.FC<ServiceTrackingViewProps> = ({
 
               <div className="space-y-2">
                 {group.rows.map((row) => {
-                  const isReady = row.item.status === 'prete';
+                  const isDrink = isDrinkOrBeerItem({ name: row.item.name, menuItemId: row.item.menuItemId }, categories, menu);
+                  const isReady = isDrink || row.item.status === 'prete';
                   return (
                     <div
                       key={row.item.id}

@@ -21,7 +21,7 @@ import {
   UtensilsCrossed
 } from 'lucide-react';
 import { Table, Order, Waiter, RestaurantSettings, TableStatus, User, MenuItem, Category } from '../../types';
-import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel, formatElapsedSince } from '../../utils/formatters';
+import { formatCurrency, getTableStatusBadgeClass, getTableStatusLabel, formatElapsedSince, isDrinkOrBeerItem } from '../../utils/formatters';
 import { store } from '../../services/store';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
@@ -533,7 +533,8 @@ export const TablesView: React.FC<TablesViewProps> = ({
                         .filter((it) => it.status !== 'annulee')
                         .map((it) => {
                           const isServed = it.status === 'servie';
-                          const isReady = it.status === 'prete';
+                          const isDrink = isDrinkOrBeerItem({ name: it.name, menuItemId: it.menuItemId }, categories, menu);
+                          const isReady = isDrink || it.status === 'prete';
                           return (
                             <div
                               key={it.id}
