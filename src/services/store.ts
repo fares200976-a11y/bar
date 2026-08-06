@@ -1320,6 +1320,23 @@ export const store = {
     return { success: true };
   },
 
+  // Le staff pèse un produit "au poids" commandé par un client (sans poids
+  // connu à la commande) et indique le poids réel — recalcule le prix final.
+  async setOrderItemWeight(
+    orderId: string,
+    itemId: string,
+    weightGrams: number
+  ): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('set_order_item_weight', {
+      p_order_id: orderId,
+      p_item_id: itemId,
+      p_weight_grams: weightGrams,
+    });
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
   async callWaiter(tableId: number) {
     await supabase.rpc('client_call_waiter', { p_table_id: tableId });
     await fetchAll();
