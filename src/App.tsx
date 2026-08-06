@@ -940,6 +940,8 @@ export default function App() {
           {adminTab === 'service' && (
             <ServiceTrackingView
               orders={appState.orders}
+              menu={appState.menu}
+              categories={appState.categories}
               settings={appState.settings}
               currentUser={currentUser}
               onMarkItemServed={(oId, iId, nextStatus) => store.updateOrderItemStatus(oId, iId, nextStatus)}
