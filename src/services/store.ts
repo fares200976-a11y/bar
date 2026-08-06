@@ -361,6 +361,7 @@ function mapMenuItem(row: any): MenuItem {
     barcode: row.barcode ?? undefined,
     isPlatDuJour: row.is_plat_du_jour ?? false,
     isPricedByWeight: row.is_priced_by_weight ?? false,
+    isHidden: row.is_hidden ?? false,
   };
 }
 
@@ -588,6 +589,12 @@ async function fetchAll(): Promise<void> {
   if (fetchInFlight) return fetchInFlight;
 
   fetchInFlight = (async () => {
+    // Ne recharge que l'historique récent (3 derniers jours) pour les
+    // commandes/articles — l'app devient de plus en plus lente sinon, à
+    // mesure que l'historique s'accumule avec le temps. L'historique complet
+    // reste consultable séparément via fetchOrderHistory() (voir OrderHistoryView).
+    const recentCutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
     let results;
     try {
       results = await Promise.all([
@@ -595,9 +602,9 @@ async function fetchAll(): Promise<void> {
         supabase.from('categories').select('*').order('sort_order'),
         supabase.from('menu_items').select('*'),
         supabase.from('restaurant_tables').select('*').order('id'),
-        supabase.from('orders').select('*').order('created_at', { ascending: false }),
-        supabase.from('order_items').select('*'),
-        supabase.from('bills').select('*').order('paid_at', { ascending: false }),
+        supabase.from('orders').select('*').gte('created_at', recentCutoff).order('created_at', { ascending: false }),
+        supabase.from('order_items').select('*').gte('created_at', recentCutoff),
+        supabase.from('bills').select('*').order('paid_at', { ascending: false }).limit(50),
         supabase.from('reservations').select('*'),
         supabase.from('restaurant_settings').select('*').eq('id', true).maybeSingle(),
         supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(30),
@@ -773,7 +780,7 @@ export const store = {
   // Versions "rapides" pour l'import en masse (scan de menu) : pas de
   // rafraîchissement de toute l'app après CHAQUE ligne — un seul refresh()
   // à la fin de tout l'import, sinon 40 plats = 40 rechargements complets.
-  async addCategoryFast(name: string, section: 'food' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
+  async addCategoryFast(name: string, section: 'food' | 'drinks' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
     const { data, error } = await supabase
       .from('categories')
       .insert({ name, sort_order: state.categories.length + 1, section })
@@ -804,6 +811,7 @@ export const store = {
       barcode: item.barcode || null,
       is_plat_du_jour: item.isPlatDuJour ?? false,
       is_priced_by_weight: item.isPricedByWeight ?? false,
+      is_hidden: item.isHidden ?? false,
     });
     if (error) return { success: false, message: error.message };
     return { success: true };
@@ -819,6 +827,40 @@ export const store = {
   // "images: [url]" sur un produit ou "customAudioUrl" dans les réglages.
   // Réinitialisation complète du site (menu + historique) — réservée admin,
   // pour repartir de zéro avec un autre restaurant sans passer par le SQL.
+  // Historique complet, indépendant de l'état "vivant" (limité à 3 jours pour
+  // la rapidité) — utilisé uniquement par l'écran Historique, à la demande.
+  async fetchOrderHistory(daysBack = 30): Promise<{ orders: Order[]; bills: Bill[] }> {
+    const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    const [ordersRes, itemsRes, billsRes] = await Promise.all([
+      supabase.from('orders').select('*').gte('created_at', cutoff).order('created_at', { ascending: false }),
+      supabase.from('order_items').select('*').gte('created_at', cutoff),
+      supabase.from('bills').select('*').gte('paid_at', cutoff).order('paid_at', { ascending: false }),
+    ]);
+
+    const itemsByOrder = new Map<string, unknown[]>();
+    (itemsRes.data || []).forEach((it: { order_id: string }) => {
+      const list = (itemsByOrder.get(it.order_id) as unknown[]) || [];
+      list.push(it);
+      itemsByOrder.set(it.order_id, list);
+    });
+
+    const orders = (ordersRes.data || []).map((o: { id: string }) =>
+      mapOrder(o, (itemsByOrder.get(o.id) as never[]) || [])
+    );
+    const bills = (billsRes.data || []).map(mapBill);
+
+    return { orders, bills };
+  },
+
+  // Vide tout l'historique des commandes/factures — contrairement à la
+  // Réinitialisation Complète, ne touche NI au menu NI aux tables elles-mêmes.
+  async clearOrderHistory(): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.rpc('clear_order_history');
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
   async fullResetRestaurant(): Promise<{ success: boolean; message?: string }> {
     const { error } = await supabase.rpc('full_reset_restaurant');
     await fetchAll();
@@ -838,7 +880,7 @@ export const store = {
     return { success: true, url: data.publicUrl };
   },
 
-  async addCategory(name: string, icon?: string, section: 'food' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
+  async addCategory(name: string, icon?: string, section: 'food' | 'drinks' | 'bar' = 'food'): Promise<{ success: boolean; id?: string; message?: string }> {
     const { data, error } = await supabase
       .from('categories')
       .insert({ name, icon, sort_order: state.categories.length + 1, section })
@@ -901,7 +943,7 @@ export const store = {
 
   // Change la section (Menu/plats ou Bar/alcools) d'une catégorie déjà créée
   // — utile pour corriger un classement automatique erroné après un scan.
-  async updateCategorySection(categoryId: string, section: 'food' | 'bar'): Promise<{ success: boolean; message?: string }> {
+  async updateCategorySection(categoryId: string, section: 'food' | 'drinks' | 'bar'): Promise<{ success: boolean; message?: string }> {
     const { error } = await supabase.from('categories').update({ section }).eq('id', categoryId);
     await fetchAll();
     if (error) return { success: false, message: error.message };
@@ -941,6 +983,7 @@ export const store = {
       barcode: item.barcode || null,
       is_plat_du_jour: item.isPlatDuJour ?? false,
       is_priced_by_weight: item.isPricedByWeight ?? false,
+      is_hidden: item.isHidden ?? false,
     });
     await fetchAll();
   },
@@ -983,6 +1026,7 @@ export const store = {
     if (updates.barcode !== undefined) payload.barcode = updates.barcode || null;
     if (updates.isPlatDuJour !== undefined) payload.is_plat_du_jour = updates.isPlatDuJour;
     if (updates.isPricedByWeight !== undefined) payload.is_priced_by_weight = updates.isPricedByWeight;
+    if (updates.isHidden !== undefined) payload.is_hidden = updates.isHidden;
 
     await supabase.from('menu_items').update(payload).eq('id', id);
     await fetchAll();
@@ -1025,6 +1069,18 @@ export const store = {
     });
     await fetchAll();
     if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  async deleteTable(tableId: number): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('restaurant_tables').delete().eq('id', tableId);
+    await fetchAll();
+    if (error) {
+      const message = error.code === '23503'
+        ? 'Impossible : cette table a déjà des commandes/factures dans l\'historique (protégé). Vide l\'historique d\'abord si tu veux vraiment la supprimer.'
+        : error.message;
+      return { success: false, message };
+    }
     return { success: true };
   },
 
