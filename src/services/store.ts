@@ -1073,13 +1073,16 @@ export const store = {
   },
 
   async deleteTable(tableId: number): Promise<{ success: boolean; message?: string }> {
-    const { error } = await supabase.from('restaurant_tables').delete().eq('id', tableId);
+    const { data, error } = await supabase.from('restaurant_tables').delete().eq('id', tableId).select('id');
     await fetchAll();
     if (error) {
       const message = error.code === '23503'
         ? 'Impossible : cette table a déjà des commandes/factures dans l\'historique (protégé). Vide l\'historique d\'abord si tu veux vraiment la supprimer.'
         : error.message;
       return { success: false, message };
+    }
+    if (!data || data.length === 0) {
+      return { success: false, message: 'Suppression bloquée (droits insuffisants sur ce compte).' };
     }
     return { success: true };
   },
