@@ -57,7 +57,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   cartTotal,
 }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
-  const [activeSection, setActiveSection] = useState<'food' | 'bar'>('food');
+  const [activeSection, setActiveSection] = useState<'food' | 'drinks' | 'bar'>('food');
   const categoryScrollRef = useRef<HTMLDivElement>(null);
   const scrollCategories = (dir: 'left' | 'right') => {
     categoryScrollRef.current?.scrollBy({ left: dir === 'left' ? -220 : 220, behavior: 'smooth' });
@@ -132,7 +132,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       activeDietaryLabels.every((label) => (item.dietaryLabels || []).includes(label));
     const matchesAllergens =
       excludedAllergens.length === 0 || !excludedAllergens.some((alg) => item.allergens.includes(alg));
-    return matchesSection && matchesCategory && matchesSearch && matchesDietary && matchesAllergens;
+    return matchesSection && matchesCategory && matchesSearch && matchesDietary && matchesAllergens && !item.isHidden;
   });
 
   const activeFilterCount = activeDietaryLabels.length + excludedAllergens.length;
@@ -411,8 +411,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         </div>
       )}
 
-      {/* Section Switch : Menu (plats) vs Bar & Alcools */}
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      {/* Section Switch : Menu / Boissons / Bar & Alcools */}
+      <div className="grid grid-cols-3 gap-2 mb-4">
         <button
           onClick={() => {
             setActiveSection('food');
@@ -425,6 +425,19 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           }`}
         >
           🍽️ Menu
+        </button>
+        <button
+          onClick={() => {
+            setActiveSection('drinks');
+            setSelectedCategoryId('all');
+          }}
+          className={`py-3 rounded-2xl text-sm font-bold transition-all ${
+            activeSection === 'drinks'
+              ? 'bg-[#5A5A40] text-white shadow-md'
+              : 'bg-white dark:bg-[#1C1C16] text-[#9A948C] border border-[#E5E2DD] dark:border-[#33332A]'
+          }`}
+        >
+          🥤 Boissons
         </button>
         <button
           onClick={() => {
@@ -462,7 +475,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         >
         <button
           onClick={() => setSelectedCategoryId('all')}
-          className={`px-4 py-2 rounded-2xl text-xs font-medium whitespace-nowrap transition-all ${
+          className={`px-5 py-2.5 rounded-2xl text-sm font-bold whitespace-nowrap transition-all ${
             selectedCategoryId === 'all'
               ? 'bg-[#5A5A40] text-white shadow-2xs font-semibold'
               : 'bg-white dark:bg-[#1C1C16] text-[#9A948C] border border-[#E5E2DD] dark:border-[#33332A] hover:bg-[#F5F2ED] dark:hover:bg-[#26261E]'
@@ -474,7 +487,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           <button
             key={cat.id}
             onClick={() => setSelectedCategoryId(cat.id)}
-            className={`px-4 py-2 rounded-2xl text-xs font-medium whitespace-nowrap transition-all ${
+            className={`px-5 py-2.5 rounded-2xl text-sm font-bold whitespace-nowrap transition-all ${
               selectedCategoryId === cat.id
                 ? 'bg-[#5A5A40] text-white shadow-2xs font-semibold'
                 : 'bg-white dark:bg-[#1C1C16] text-[#9A948C] border border-[#E5E2DD] dark:border-[#33332A] hover:bg-[#F5F2ED] dark:hover:bg-[#26261E]'
