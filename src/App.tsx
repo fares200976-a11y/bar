@@ -422,12 +422,13 @@ export default function App() {
   }, [selectedTableId, clientAccessGranted]);
 
   // Dès que l'admin/caissier encaisse et clôture la table (elle redevient
-  // "libre"), la session du client s'efface automatiquement — il repart sur
-  // la page d'accueil pour la prochaine visite, avec un nouveau code PIN.
+  // "libre"), OU si la table a carrément été supprimée entre-temps, la
+  // session du client s'efface automatiquement — il repart sur la page
+  // d'accueil pour la prochaine visite, avec un nouveau code PIN.
   useEffect(() => {
     if (!appState.loaded || !clientAccessGranted || selectedTableId === 999) return;
     const table = appState.tables.find((t) => t.id === selectedTableId);
-    if (table && table.status === 'libre') {
+    if (!table || table.status === 'libre') {
       setClientAccessGranted(false);
       setCartItems([]);
     }
@@ -797,9 +798,19 @@ export default function App() {
           />
         ) : !selectedTable ? (
           // Ne devrait pas arriver, mais on évite un écran blanc si jamais la
-          // table n'est momentanément pas trouvée (ex: pendant un rafraîchissement).
-          <div className="min-h-[50vh] flex items-center justify-center px-4">
+          // table n'est momentanément pas trouvée (ex: pendant un rafraîchissement,
+          // ou si la table a été supprimée/clôturée entre-temps).
+          <div className="min-h-[50vh] flex flex-col items-center justify-center px-4 gap-3">
             <p className="text-sm text-slate-500 dark:text-slate-400">Chargement de votre table...</p>
+            <button
+              onClick={() => {
+                setClientAccessGranted(false);
+                setCartItems([]);
+              }}
+              className="text-xs font-semibold text-[#5A5A40] dark:text-[#D1CECB] underline"
+            >
+              Ça prend trop de temps ? Retour à l'accueil
+            </button>
           </div>
         ) : (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
