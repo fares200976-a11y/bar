@@ -896,8 +896,6 @@ export default function App() {
           {adminTab === 'dashboard' && (
             <DashboardView
               tables={appState.tables}
-              orders={appState.orders}
-              bills={appState.bills}
               waiters={appState.waiters}
               menu={appState.menu}
               settings={appState.settings}
@@ -1001,9 +999,8 @@ export default function App() {
 
           {adminTab === 'history' && (
             <OrderHistoryView
-              orders={appState.orders}
-              bills={appState.bills}
               settings={appState.settings}
+              currentUser={currentUser}
             />
           )}
 
