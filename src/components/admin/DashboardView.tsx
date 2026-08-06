@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   TrendingUp,
   DollarSign,
@@ -16,25 +16,52 @@ import {
 import { Bill, Order, Table, Waiter, RestaurantSettings, MenuItem } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import { exportToCSV, exportToExcel, exportToPDF } from '../../utils/export';
+import { store } from '../../services/store';
 
 interface DashboardViewProps {
   tables: Table[];
-  orders: Order[];
-  bills: Bill[];
   waiters: Waiter[];
   menu: MenuItem[];
   settings: RestaurantSettings;
 }
 
+// Combien de jours d'historique aller chercher selon la période affichée (il
+// faut aussi couvrir la période PRÉCÉDENTE équivalente, pour le % d'évolution).
+const DAYS_TO_FETCH: Record<'jour' | 'semaine' | 'mois' | 'annee', number> = {
+  jour: 3,
+  semaine: 16,
+  mois: 65,
+  annee: 731,
+};
+
 export const DashboardView: React.FC<DashboardViewProps> = ({
   tables,
-  orders,
-  bills,
   waiters,
   menu,
   settings,
 }) => {
   const [periodFilter, setPeriodFilter] = useState<'jour' | 'semaine' | 'mois' | 'annee'>('jour');
+
+  // Le Tableau de bord a besoin de plus d'historique que le reste de l'app
+  // (qui se limite aux 3 derniers jours pour rester rapide) — il va donc
+  // chercher lui-même exactement ce qu'il lui faut selon la période choisie.
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingStats(true);
+    store.fetchOrderHistory(DAYS_TO_FETCH[periodFilter]).then((result) => {
+      if (cancelled) return;
+      setOrders(result.orders);
+      setBills(result.bills);
+      setIsLoadingStats(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [periodFilter]);
 
   const occupiedTablesCount = tables.filter((t) => t.status !== 'libre').length;
   const freeTablesCount = tables.filter((t) => t.status === 'libre').length;

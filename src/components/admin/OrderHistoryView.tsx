@@ -1,22 +1,40 @@
-import React, { useState } from 'react';
-import { History, Search, Printer } from 'lucide-react';
-import { Bill, Order, RestaurantSettings } from '../../types';
+import React, { useEffect, useState } from 'react';
+import { History, Search, Printer, AlertTriangle, Trash2, RefreshCw } from 'lucide-react';
+import { Bill, Order, RestaurantSettings, User } from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { printThermalReceipt } from '../../utils/export';
+import { store } from '../../services/store';
 
 interface OrderHistoryViewProps {
-  orders: Order[];
-  bills: Bill[];
   settings: RestaurantSettings;
+  currentUser?: User | null;
 }
 
-export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({
-  orders,
-  bills,
-  settings,
-}) => {
+export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({ settings, currentUser }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('tous');
+  const [daysBack, setDaysBack] = useState(30);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState('');
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearError, setClearError] = useState('');
+
+  const loadHistory = async (range: number) => {
+    setIsLoading(true);
+    const result = await store.fetchOrderHistory(range);
+    setOrders(result.orders);
+    setBills(result.bills);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    loadHistory(daysBack);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daysBack]);
 
   const filteredOrders = orders.filter((o) => {
     const matchesSearch =
@@ -42,6 +60,25 @@ export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({
             Conservez et auditez toutes les consommations, annulations et paiements.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => loadHistory(daysBack)}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-2xl font-bold text-xs disabled:opacity-60 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Actualiser</span>
+          </button>
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={() => setShowClearModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 hover:bg-rose-100 rounded-2xl font-bold text-xs cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Vider l'Historique</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search & Filters Bar */}
@@ -63,10 +100,21 @@ export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({
           className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-800"
         >
           <option value="tous">Tous les statuts</option>
-          <option value="en_attente_validation">À valider (Serveur)</option>
+          <option value="en_attente_validation">À valider (Admin)</option>
           <option value="terminee">Terminées / Payées</option>
           <option value="annulee">Annulées</option>
           <option value="servie">Servies</option>
+        </select>
+
+        <select
+          value={daysBack}
+          onChange={(e) => setDaysBack(parseInt(e.target.value))}
+          className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-800"
+        >
+          <option value={7}>7 derniers jours</option>
+          <option value={30}>30 derniers jours</option>
+          <option value={90}>90 derniers jours</option>
+          <option value={365}>1 an</option>
         </select>
       </div>
 
@@ -86,7 +134,13 @@ export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredOrders.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-slate-400">
+                    Chargement de l'historique...
+                  </td>
+                </tr>
+              ) : filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-slate-400">
                     Aucune commande ne correspond aux critères
@@ -138,6 +192,66 @@ export const OrderHistoryView: React.FC<OrderHistoryViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Modale de confirmation stricte pour vider l'historique */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 space-y-4 shadow-2xl border border-rose-300 dark:border-rose-900">
+            <p className="font-black text-base text-rose-600 dark:text-rose-400 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              <span>Vider tout l'historique ?</span>
+            </p>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Ça supprime définitivement toutes les commandes et factures passées. Le menu et les tables ne sont PAS
+              touchés. Tape <span className="font-mono font-black">VIDER</span> pour confirmer.
+            </p>
+            <input
+              type="text"
+              value={clearConfirmText}
+              onChange={(e) => setClearConfirmText(e.target.value)}
+              placeholder="VIDER"
+              className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 font-mono font-bold text-center text-slate-900 dark:text-white"
+            />
+            {clearError && <p className="text-xs font-bold text-rose-600">{clearError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowClearModal(false);
+                  setClearConfirmText('');
+                  setClearError('');
+                }}
+                disabled={isClearing}
+                className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl font-black text-xs disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={async () => {
+                  if (clearConfirmText !== 'VIDER') {
+                    setClearError('Tape exactement VIDER pour confirmer.');
+                    return;
+                  }
+                  setIsClearing(true);
+                  setClearError('');
+                  const result = await store.clearOrderHistory();
+                  setIsClearing(false);
+                  if (!result.success) {
+                    setClearError(result.message || 'Échec de la suppression.');
+                    return;
+                  }
+                  setShowClearModal(false);
+                  setClearConfirmText('');
+                  loadHistory(daysBack);
+                }}
+                disabled={isClearing}
+                className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-2xl font-black text-xs shadow-md"
+              >
+                {isClearing ? 'Suppression...' : 'Tout Vider'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

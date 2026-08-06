@@ -106,7 +106,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
   const [showScanner, setShowScanner] = useState(false);
   const [clientNameDraft, setClientNameDraft] = useState('');
   const [savingClientName, setSavingClientName] = useState(false);
-  const [productGroupFilter, setProductGroupFilter] = useState<'all' | 'biere' | 'vin' | 'plat' | 'digestif'>('all');
+  const [productGroupFilter, setProductGroupFilter] = useState<'all' | 'biere' | 'vin' | 'plat' | 'digestif' | 'boisson'>('all');
   const [productSearchFS, setProductSearchFS] = useState('');
   const [addingItemIdFS, setAddingItemIdFS] = useState<string | null>(null);
 
@@ -179,23 +179,25 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
   // Classe chaque produit dans un groupe rapide (Bières / Vins / Plats /
   // Digestifs) pour la navigation par le côté en plein écran.
-  const getItemGroup = (item: MenuItem): 'biere' | 'vin' | 'plat' | 'digestif' | 'autre' => {
+  const getItemGroup = (item: MenuItem): 'biere' | 'vin' | 'plat' | 'digestif' | 'boisson' | 'autre' => {
     const cat = categories.find((c) => c.id === item.categoryId);
     if (!cat) return 'autre';
     const n = cat.name.toLowerCase();
     if (n.includes('bière') || n.includes('biere')) return 'biere';
     if (n.includes('vin')) return 'vin';
     if (n.includes('whisky') || n.includes('whiskey') || n.includes('digestif')) return 'digestif';
+    if (cat.section === 'drinks') return 'boisson';
     if (cat.section === 'food') return 'plat';
     return 'autre';
   };
 
-  const PRODUCT_GROUPS: Array<{ id: 'all' | 'biere' | 'vin' | 'plat' | 'digestif'; label: string }> = [
+  const PRODUCT_GROUPS: Array<{ id: 'all' | 'biere' | 'vin' | 'plat' | 'digestif' | 'boisson'; label: string }> = [
     { id: 'all', label: 'Tout' },
     { id: 'biere', label: '🍺 Bières' },
     { id: 'vin', label: '🍷 Vins' },
-    { id: 'plat', label: '🍽️ Plats' },
     { id: 'digestif', label: '🥃 Digestifs' },
+    { id: 'boisson', label: '🥤 Boissons' },
+    { id: 'plat', label: '🍽️ Plats' },
   ];
 
   const selectedTablePendingOrders = selectedTable ? getTablePendingOrders(selectedTable.id) : [];
@@ -733,6 +735,24 @@ export const TablesView: React.FC<TablesViewProps> = ({
                 >
                   <Receipt className="w-4 h-4" />
                   <span>Encaisser au POS / Caisse</span>
+                </button>
+              )}
+
+              {/* Supprimer la table — réservé admin, en bas, discret */}
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Supprimer définitivement "${selectedTable.name}" ?`)) return;
+                    const result = await store.deleteTable(selectedTable.id);
+                    if (!result.success) {
+                      alert(result.message || 'Suppression impossible.');
+                      return;
+                    }
+                    setSelectedTable(null);
+                  }}
+                  className="w-full py-2.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-2xl font-bold text-[11px] transition-colors cursor-pointer"
+                >
+                  Supprimer cette table
                 </button>
               )}
             </div>
