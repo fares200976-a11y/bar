@@ -202,7 +202,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       Articles: o.items.map((i) => `${i.quantity}x ${i.name}`).join(', '),
       Total: o.items.filter((i) => i.status !== 'annulee').reduce((s, i) => s + i.unitPrice * i.quantity, 0),
     }));
-    exportToExcel('Rapport_RestoBar', 'Commandes', exportData);
+    exportToExcel('Rapport_RestoBar', 'Commandes', exportData, 'Total');
   };
 
   const handleExportCSV = () => {
