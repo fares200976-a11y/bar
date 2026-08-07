@@ -180,8 +180,39 @@ export function exportToPDF(title: string, columns: string[], data: Array<Record
   doc.save(`${title.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}.pdf`);
 }
 
-export function exportToExcel(filename: string, sheetName: string, data: Array<Record<string, unknown>>) {
+export function exportToExcel(
+  filename: string,
+  sheetName: string,
+  data: Array<Record<string, unknown>>,
+  totalColumn?: string // nom de la colonne à totaliser automatiquement (ex: 'Total')
+) {
   const worksheet = XLSX.utils.json_to_sheet(data);
+
+  if (totalColumn && data.length > 0) {
+    const keys = Object.keys(data[0]);
+    const colIndex = keys.indexOf(totalColumn);
+
+    if (colIndex !== -1) {
+      const colLetter = XLSX.utils.encode_col(colIndex);
+      const firstDataRow = 2; // ligne 1 = en-têtes, les données commencent en ligne 2
+      const lastDataRow = data.length + 1;
+      const totalRowIndex = data.length + 1; // ligne juste après la dernière donnée (0-indexée)
+
+      // Libellé "TOTAL" en première colonne de la ligne de total.
+      XLSX.utils.sheet_add_aoa(worksheet, [['TOTAL']], { origin: { r: totalRowIndex, c: 0 } });
+
+      // Vraie formule Excel =SOMME(...) — se recalcule automatiquement si
+      // les valeurs sont modifiées dans Excel, pas un nombre figé.
+      const totalCellRef = XLSX.utils.encode_cell({ r: totalRowIndex, c: colIndex });
+      worksheet[totalCellRef] = { t: 'n', f: `SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})` };
+
+      // Étend la plage de la feuille pour inclure cette nouvelle ligne.
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      range.e.r = Math.max(range.e.r, totalRowIndex);
+      worksheet['!ref'] = XLSX.utils.encode_range(range);
+    }
+  }
+
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   XLSX.writeFile(workbook, `${filename}_${Date.now()}.xlsx`);
