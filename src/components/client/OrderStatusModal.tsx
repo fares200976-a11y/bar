@@ -187,24 +187,45 @@ export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({
             </div>
           )}
 
-          {/* Action Call / Bill Buttons */}
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            <button
-              onClick={onCallWaiter}
-              className="flex items-center justify-center gap-2 p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs transition-colors"
+          {/* Action Buttons — différents pour une commande à emporter (Click &
+              Collect, tableId 999) : pas de serveur/addition à table, mais un
+              bouton WhatsApp pour confirmer la commande auprès du restaurant
+              (gratuit — pas besoin d'API WhatsApp payante, le client envoie
+              lui-même un message pré-rempli). */}
+          {order.tableId === 999 ? (
+            <a
+              href={`https://wa.me/${(settings.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
+                `Bonjour ${settings.name}, je confirme ma commande à emporter #${order.orderNumber} : ${order.items
+                  .filter((i) => i.status !== 'annulee')
+                  .map((i) => `${i.quantity}x ${i.name}`)
+                  .join(', ')} — Total : ${formatCurrency(total, settings.currency)}. Merci !`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 p-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold text-xs shadow-md shadow-emerald-500/20 transition-colors"
             >
-              <Bell className="w-4 h-4 text-rose-500" />
-              <span>Appeler Serveur</span>
-            </button>
+              <Bell className="w-4 h-4" />
+              <span>Confirmer via WhatsApp</span>
+            </a>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={onCallWaiter}
+                className="flex items-center justify-center gap-2 p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl font-bold text-xs transition-colors"
+              >
+                <Bell className="w-4 h-4 text-rose-500" />
+                <span>Appeler Serveur</span>
+              </button>
 
-            <button
-              onClick={onRequestBill}
-              className="flex items-center justify-center gap-2 p-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-bold text-xs shadow-md shadow-rose-500/20 transition-colors"
-            >
-              <Receipt className="w-4 h-4" />
-              <span>Demander Addition</span>
-            </button>
-          </div>
+              <button
+                onClick={onRequestBill}
+                className="flex items-center justify-center gap-2 p-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-bold text-xs shadow-md shadow-rose-500/20 transition-colors"
+              >
+                <Receipt className="w-4 h-4" />
+                <span>Demander Addition</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
