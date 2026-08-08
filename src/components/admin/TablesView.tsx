@@ -470,12 +470,28 @@ export const TablesView: React.FC<TablesViewProps> = ({
               </h3>
               <p className="text-xs text-slate-300">Statut : {getTableStatusLabel(selectedTable.status)}</p>
             </div>
-            <button
-              onClick={() => setSelectedTable(null)}
-              className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-            >
-              <X className="w-6 h-6" />
-            </button>
+            <div className="flex items-center gap-2">
+              {canQuickAdd && (
+                <button
+                  onClick={() => setShowProductPicker(!showProductPicker)}
+                  className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl font-black text-xs cursor-pointer transition-colors ${
+                    showProductPicker
+                      ? 'bg-slate-700 hover:bg-slate-600 text-white'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-md'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">{showProductPicker ? 'Masquer les produits' : 'Ajouter un produit'}</span>
+                  <span className="sm:hidden">{showProductPicker ? 'Retour au ticket' : 'Ajouter'}</span>
+                </button>
+              )}
+              <button
+                onClick={() => setSelectedTable(null)}
+                className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
           </div>
 
           {/* Body: sidebar groupes | grille produits | ticket & actions */}
@@ -595,22 +611,15 @@ export const TablesView: React.FC<TablesViewProps> = ({
               </div>
             )}
 
-            {/* Ticket + actions */}
-            <div className="shrink-0 lg:w-96 overflow-y-auto p-4 bg-white dark:bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 space-y-4">
-              {canQuickAdd && (
-                <button
-                  onClick={() => setShowProductPicker(!showProductPicker)}
-                  className={`w-full py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-                    showProductPicker
-                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-md'
-                  }`}
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{showProductPicker ? 'Masquer les produits' : 'Ajouter un produit'}</span>
-                </button>
-              )}
-
+            {/* Ticket + actions — masqué sur mobile quand la grille produits est
+                ouverte, pour que l'ajout de produit occupe tout l'écran comme
+                une vraie page à part (sur ordinateur, les deux restent visibles
+                côte à côte). */}
+            <div
+              className={`shrink-0 lg:w-96 overflow-y-auto p-4 bg-white dark:bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 space-y-4 ${
+                showProductPicker ? 'hidden lg:block' : 'block'
+              }`}
+            >
               {/* 4-digit PIN Code Banner */}
               <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/50 flex items-center justify-between">
                 <div>
