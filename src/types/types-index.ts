@@ -136,7 +136,7 @@ export interface Reservation {
   guestCount: number;
   dateTime: string; // ISO string or format YYYY-MM-DD HH:mm
   notes?: string;
-  status: 'confirmée' | 'annulée' | 'honorée';
+  status: 'confirmée' | 'annulée' | 'honorée' | 'en_attente';
 }
 
 export interface Waiter {
@@ -173,6 +173,8 @@ export interface RestaurantSettings {
   alarmVolume?: number;
   latitude?: number;
   longitude?: number;
+  landingBackgroundUrl?: string;
+  landingBackgroundType?: 'image' | 'video';
 }
 
 export interface CashRegisterClosing {
