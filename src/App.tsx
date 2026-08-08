@@ -143,7 +143,24 @@ function ClientLandingGate({
   }, [pin]);
 
   return (
-    <main className="min-h-[75vh] flex items-center justify-center px-4 py-10">
+    <main className="relative min-h-[75vh] flex items-center justify-center px-4 py-10 overflow-hidden">
+      {settings.landingBackgroundUrl && (
+        <div className="absolute inset-0 -z-10">
+          {settings.landingBackgroundType === 'video' ? (
+            <video
+              src={settings.landingBackgroundUrl}
+              className="w-full h-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+            />
+          ) : (
+            <img src={settings.landingBackgroundUrl} alt="" className="w-full h-full object-cover" />
+          )}
+          <div className="absolute inset-0 bg-black/45" />
+        </div>
+      )}
       <div className="w-full max-w-sm bg-white dark:bg-[#1C1C16] rounded-3xl shadow-xl border border-[#E5E2DD] dark:border-[#33332A] p-8 text-center space-y-6">
         {settings.logo && (
           <img
@@ -884,6 +901,7 @@ export default function App() {
           }}
           currentUser={currentUser}
           onLogout={() => { signOut(); setCurrentUser(null); setCurrentView('client'); }}
+          hasPendingReservations={appState.reservations.some((r) => r.status === 'en_attente')}
         >
           <Suspense
             fallback={
@@ -995,6 +1013,8 @@ export default function App() {
               onAddReservation={(r) => store.addReservation(r)}
               onCancelReservation={(id) => store.cancelReservation(id)}
               onAssignTable={(resId, tableId) => store.assignReservationTable(resId, tableId)}
+              onConfirmReservation={(id) => store.confirmReservation(id)}
+              onDeleteReservation={(id) => store.deleteReservation(id)}
             />
           )}
 
