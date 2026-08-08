@@ -616,7 +616,20 @@ export default function App() {
     return () => clearInterval(interval);
   }, [currentUser, audioEnabled, appState.orders]);
 
-  const selectedTable = appState.tables.find((t) => t.id === selectedTableId);
+  // Le Click & Collect (999) n'a pas de vraie ligne en base — on fabrique une
+  // table virtuelle pour que tous les écrans qui attendent un objet Table
+  // complet (ClientMenuView, etc.) fonctionnent normalement sans planter.
+  const PICKUP_VIRTUAL_TABLE: Table = {
+    id: 999,
+    number: 999,
+    name: 'Commande à Emporter',
+    status: 'occupee',
+    seats: 1,
+  };
+  const selectedTable =
+    selectedTableId === 999
+      ? PICKUP_VIRTUAL_TABLE
+      : appState.tables.find((t) => t.id === selectedTableId);
   const assignedWaiter = appState.waiters.find((w) => w.id === selectedTable?.assignedWaiterId);
 
   // Sécurité : une table n'est considérée "vérifiée" que lorsque le client a saisi
@@ -808,7 +821,7 @@ export default function App() {
               setClientAccessGranted(true);
             }}
           />
-        ) : !selectedTable ? (
+        ) : !selectedTable && selectedTableId !== 999 ? (
           // Ne devrait pas arriver, mais on évite un écran blanc si jamais la
           // table n'est momentanément pas trouvée (ex: pendant un rafraîchissement,
           // ou si la table a été supprimée/clôturée entre-temps).
