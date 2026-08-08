@@ -36,6 +36,7 @@ interface AdminLayoutProps {
   onTabChange: (tab: AdminTab) => void;
   currentUser: User;
   onLogout: () => void;
+  hasPendingReservations?: boolean;
   children: React.ReactNode;
 }
 
@@ -44,6 +45,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   onTabChange,
   currentUser,
   onLogout,
+  hasPendingReservations = false,
   children,
 }) => {
   // Check role-based access
@@ -114,6 +116,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           <nav className="space-y-1.5">
             {allowedItems.map((item) => {
               const isActive = activeTab === item.id;
+              const isBlinkingReservations = item.id === 'reservations' && hasPendingReservations && !isActive;
               return (
                 <button
                   key={item.id}
@@ -121,11 +124,16 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                   className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl font-black text-sm transition-all cursor-pointer ${
                     isActive
                       ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
+                      : isBlinkingReservations
+                      ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 animate-pulse'
                       : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   {item.icon}
                   <span>{item.label}</span>
+                  {isBlinkingReservations && (
+                    <span className="ml-auto w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
+                  )}
                 </button>
               );
             })}

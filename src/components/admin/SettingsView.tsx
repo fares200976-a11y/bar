@@ -66,6 +66,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const [name, setName] = useState(settings.name);
   const [logo, setLogo] = useState(settings.logo);
+  const bgUploadRef = useRef<HTMLInputElement>(null);
+  const [isUploadingBg, setIsUploadingBg] = useState(false);
+
+  const handleBgFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingBg(true);
+    const result = await store.uploadFile('branding', file);
+    setIsUploadingBg(false);
+    if (!result.success || !result.url) {
+      alert(result.message || "Échec de l'envoi.");
+      return;
+    }
+    const mediaType: 'image' | 'video' = file.type.startsWith('video') ? 'video' : 'image';
+    onUpdateSettings({ landingBackgroundUrl: result.url, landingBackgroundType: mediaType });
+    e.target.value = '';
+  };
   const [address, setAddress] = useState(settings.address);
   const [phone, setPhone] = useState(settings.phone);
   const [email, setEmail] = useState(settings.email);
@@ -84,6 +101,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [customAudioUrl, setCustomAudioUrl] = useState(settings.customAudioUrl || '');
   const audioUploadRef = useRef<HTMLInputElement>(null);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [showFullResetModal, setShowFullResetModal] = useState(false);
+  const [fullResetConfirmText, setFullResetConfirmText] = useState('');
+  const [isFullResetting, setIsFullResetting] = useState(false);
+  const [fullResetError, setFullResetError] = useState('');
 
   const handleAudioFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -198,6 +219,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onChange={(e) => setLogo(e.target.value)}
               className="w-full mt-1 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700"
             />
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300">Fond de la Page d'Accueil Client (photo ou vidéo) :</label>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                ref={bgUploadRef}
+                type="file"
+                accept="image/*,video/*"
+                onChange={handleBgFileSelected}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => bgUploadRef.current?.click()}
+                disabled={isUploadingBg}
+                className="flex items-center gap-1.5 px-4 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold text-xs disabled:opacity-60 cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{isUploadingBg ? 'Envoi...' : 'Uploader une photo/vidéo'}</span>
+              </button>
+              {settings.landingBackgroundUrl && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ landingBackgroundUrl: undefined, landingBackgroundType: undefined })}
+                  className="px-3 py-3 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-2xl font-bold text-xs cursor-pointer"
+                >
+                  Retirer
+                </button>
+              )}
+            </div>
+            {settings.landingBackgroundUrl && (
+              <div className="mt-2 w-full max-w-xs rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                {settings.landingBackgroundType === 'video' ? (
+                  <video src={settings.landingBackgroundUrl} className="w-full h-32 object-cover" muted autoPlay loop />
+                ) : (
+                  <img src={settings.landingBackgroundUrl} alt="" className="w-full h-32 object-cover" />
+                )}
+              </div>
+            )}
           </div>
 
           <div>
@@ -540,7 +601,90 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span>Réinitialiser les Données</span>
           </button>
         </div>
+
+        {/* Full Site Reset — pour repartir avec un autre restaurant */}
+        <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-3">
+          <div>
+            <p className="text-xs font-bold text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4" />
+              <span>Réinitialisation Complète du Site</span>
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Vide TOUT (menu, catégories, historique des commandes/factures, caisse, avis, réservations) pour
+              repartir à zéro avec un autre restaurant. Les comptes du personnel et ces réglages ne sont pas
+              touchés. <span className="font-bold text-rose-500">Irréversible.</span>
+            </p>
+          </div>
+          <button
+            onClick={() => setShowFullResetModal(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors"
+          >
+            <AlertCircle className="w-4 h-4" />
+            <span>Réinitialisation Complète (menu + historique)</span>
+          </button>
+        </div>
       </div>
+
+      {/* Modale de confirmation stricte pour la réinitialisation complète */}
+      {showFullResetModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 space-y-4 shadow-2xl border border-rose-300 dark:border-rose-900">
+            <p className="font-black text-base text-rose-600 dark:text-rose-400 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              <span>Confirmation requise</span>
+            </p>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Cette action va supprimer définitivement tout le menu et tout l'historique. Tape{' '}
+              <span className="font-mono font-black">SUPPRIMER</span> pour confirmer.
+            </p>
+            <input
+              type="text"
+              value={fullResetConfirmText}
+              onChange={(e) => setFullResetConfirmText(e.target.value)}
+              placeholder="SUPPRIMER"
+              className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 font-mono font-bold text-center text-slate-900 dark:text-white"
+            />
+            {fullResetError && (
+              <p className="text-xs font-bold text-rose-600">{fullResetError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowFullResetModal(false);
+                  setFullResetConfirmText('');
+                  setFullResetError('');
+                }}
+                disabled={isFullResetting}
+                className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl font-black text-xs disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={async () => {
+                  if (fullResetConfirmText !== 'SUPPRIMER') {
+                    setFullResetError('Tape exactement SUPPRIMER pour confirmer.');
+                    return;
+                  }
+                  setIsFullResetting(true);
+                  setFullResetError('');
+                  const result = await store.fullResetRestaurant();
+                  setIsFullResetting(false);
+                  if (!result.success) {
+                    setFullResetError(result.message || 'Échec de la réinitialisation.');
+                    return;
+                  }
+                  setShowFullResetModal(false);
+                  setFullResetConfirmText('');
+                }}
+                disabled={isFullResetting}
+                className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-2xl font-black text-xs shadow-md"
+              >
+                {isFullResetting ? 'Suppression...' : 'Tout Supprimer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Plus, Phone, Users, Clock, XCircle } from 'lucide-react';
+import { Calendar, Plus, Phone, Users, Clock, XCircle, CheckCircle2, Trash2 } from 'lucide-react';
 import { Reservation, Table } from '../../types';
 import { formatDateTime } from '../../utils/formatters';
 
@@ -9,6 +9,8 @@ interface ReservationsViewProps {
   onAddReservation: (res: Omit<Reservation, 'id'>) => void;
   onCancelReservation: (id: string) => void;
   onAssignTable: (reservationId: string, tableId: number) => void;
+  onConfirmReservation: (id: string) => void;
+  onDeleteReservation: (id: string) => void;
 }
 
 export const ReservationsView: React.FC<ReservationsViewProps> = ({
@@ -17,6 +19,8 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
   onAddReservation,
   onCancelReservation,
   onAssignTable,
+  onConfirmReservation,
+  onDeleteReservation,
 }) => {
   const [showModal, setShowModal] = useState(false);
 
@@ -132,17 +136,44 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
                   )}
                 </div>
 
-                {res.status === 'confirmée' ? (
+                <div className="flex items-center gap-2 self-start sm:self-center">
+                  {res.status === 'en_attente' && (
+                    <>
+                      <span className="text-xs font-black px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 animate-pulse">
+                        ⏳ En attente
+                      </span>
+                      <button
+                        onClick={() => onConfirmReservation(res.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-colors"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Confirmer</span>
+                      </button>
+                    </>
+                  )}
+                  {res.status === 'confirmée' && (
+                    <button
+                      onClick={() => onCancelReservation(res.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-bold hover:bg-rose-100 transition-colors"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      <span>Annuler</span>
+                    </button>
+                  )}
+                  {(res.status === 'annulée' || res.status === 'honorée') && (
+                    <span className="text-xs font-bold text-slate-400 italic capitalize">{res.status}</span>
+                  )}
                   <button
-                    onClick={() => onCancelReservation(res.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-bold hover:bg-rose-100 transition-colors self-start sm:self-center"
+                    onClick={() => {
+                      if (!confirm(`Supprimer définitivement la réservation de ${res.clientName} ?`)) return;
+                      onDeleteReservation(res.id);
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"
+                    title="Supprimer définitivement"
                   >
-                    <XCircle className="w-4 h-4" />
-                    <span>Annuler</span>
+                    <Trash2 className="w-4 h-4" />
                   </button>
-                ) : (
-                  <span className="text-xs font-bold text-slate-400 italic">Annulée</span>
-                )}
+                </div>
               </div>
             ))}
           </div>
