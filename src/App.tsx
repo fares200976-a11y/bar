@@ -625,7 +625,11 @@ export default function App() {
   // addition) n'est autorisée — visiter /table/N sans le code ne suffit plus.
   // NB : on teste "≠ libre" et pas "=== occupee" car after une commande le statut
   // passe à 'commande_en_cours' — la table reste bien vérifiée à ce moment-là.
-  const isSelectedTableVerified = Boolean(selectedTable) && selectedTable?.status !== 'libre';
+  // Le Click & Collect (table virtuelle 999) n'a pas de ligne réelle dans
+  // "tables" — le simple fait d'avoir cliqué sur "Commander à Emporter" suffit
+  // à le considérer comme validé (pas besoin de code PIN comme une vraie table).
+  const isSelectedTableVerified =
+    selectedTableId === 999 || (Boolean(selectedTable) && selectedTable?.status !== 'libre');
 
   const [pickupOrderId, setPickupOrderId] = useState<string | null>(null);
 
@@ -710,7 +714,10 @@ export default function App() {
 
     if (selectedTableId === 999) {
       const order = await store.createPickupOrder(cartItems);
-      if (order) setPickupOrderId(order.id);
+      if (order) {
+        setPickupOrderId(order.id);
+        setIsStatusModalOpen(true);
+      }
     } else {
       store.createOrder(selectedTableId, cartItems);
     }
@@ -902,6 +909,7 @@ export default function App() {
           currentUser={currentUser}
           onLogout={() => { signOut(); setCurrentUser(null); setCurrentView('client'); }}
           hasPendingReservations={appState.reservations.some((r) => r.status === 'en_attente')}
+          hasPendingValidationOrders={appState.orders.some((o) => o.status === 'en_attente_validation')}
         >
           <Suspense
             fallback={
