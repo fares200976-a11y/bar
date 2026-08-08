@@ -213,7 +213,12 @@ export const TablesView: React.FC<TablesViewProps> = ({
         .filter((item) => item.name.toLowerCase().includes(productSearchFS.trim().toLowerCase()))
     : [];
 
-  const handleAddProductFS = async (item: MenuItem) => {
+  // Popup "clavier numérique" (comme un vrai POS) pour choisir la quantité
+  // avant d'ajouter un produit — au lieu d'ajouter 1 unité directement au clic.
+  const [pendingQtyItem, setPendingQtyItem] = useState<MenuItem | null>(null);
+  const [qtyInput, setQtyInput] = useState('1');
+
+  const handleAddProductFS = async (item: MenuItem, quantity: number = 1) => {
     if (!selectedTable) return;
 
     if (item.isPricedByWeight) {
@@ -232,8 +237,28 @@ export const TablesView: React.FC<TablesViewProps> = ({
     }
 
     setAddingItemIdFS(item.id);
-    await onAddItemsToTable(selectedTable.id, [{ menuItem: item, quantity: 1 }]);
+    await onAddItemsToTable(selectedTable.id, [{ menuItem: item, quantity }]);
     setAddingItemIdFS(null);
+  };
+
+  // Clic sur un produit : les produits vendus au poids gardent leur prompt de
+  // poids direct ; les autres ouvrent le clavier numérique pour choisir la
+  // quantité (comme un vrai terminal POS), au lieu d'ajouter 1 unité d'office.
+  const handleProductTap = (item: MenuItem) => {
+    if (item.isPricedByWeight) {
+      handleAddProductFS(item);
+      return;
+    }
+    setPendingQtyItem(item);
+    setQtyInput('1');
+  };
+
+  const confirmAddWithQty = async () => {
+    if (!pendingQtyItem) return;
+    const qty = parseInt(qtyInput, 10) || 1;
+    const item = pendingQtyItem;
+    setPendingQtyItem(null);
+    await handleAddProductFS(item, qty);
   };
 
   return (
@@ -495,7 +520,7 @@ export const TablesView: React.FC<TablesViewProps> = ({
                     <button
                       key={item.id}
                       disabled={isUnavailable || addingItemIdFS === item.id}
-                      onClick={() => handleAddProductFS(item)}
+                      onClick={() => handleProductTap(item)}
                       className={`relative p-3.5 rounded-2xl border text-left transition-all active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                         addingItemIdFS === item.id
                           ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400'
@@ -856,6 +881,71 @@ export const TablesView: React.FC<TablesViewProps> = ({
 
 
       {/* Move Order Modal */}
+      {/* Clavier numérique pour choisir la quantité (comme un vrai POS) */}
+      {pendingQtyItem && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-xs rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
+            <div className="text-center">
+              <p className="text-sm font-extrabold text-slate-900 dark:text-white">{pendingQtyItem.name}</p>
+              <p className="text-xs text-slate-400">
+                {formatCurrency(
+                  pendingQtyItem.isPromo && pendingQtyItem.promoPrice != null ? pendingQtyItem.promoPrice : pendingQtyItem.price,
+                  settings.currency
+                )}{' '}
+                / unité
+              </p>
+            </div>
+
+            <div className="text-center text-4xl font-black text-slate-900 dark:text-white py-2">{qtyInput}</div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setQtyInput((prev) => (prev === '1' ? n : (prev + n).slice(0, 3)))}
+                  className="py-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-black text-lg cursor-pointer"
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                onClick={() => setQtyInput('1')}
+                className="py-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 font-black text-sm cursor-pointer"
+              >
+                C
+              </button>
+              <button
+                onClick={() => setQtyInput((prev) => (prev === '1' ? '0' : (prev + '0').slice(0, 3)))}
+                className="py-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-black text-lg cursor-pointer"
+              >
+                0
+              </button>
+              <button
+                onClick={() => setQtyInput((prev) => (prev.length > 1 ? prev.slice(0, -1) : '1'))}
+                className="py-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-black text-sm cursor-pointer"
+              >
+                ⌫
+              </button>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingQtyItem(null)}
+                className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl font-black text-xs cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmAddWithQty}
+                className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-md cursor-pointer"
+              >
+                Ajouter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showMoveModal && selectedTable && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
