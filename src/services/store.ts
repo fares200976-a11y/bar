@@ -496,6 +496,8 @@ function mapSettings(row: any): RestaurantSettings {
     alarmVolume: row.alarm_volume != null ? Number(row.alarm_volume) : undefined,
     latitude: row.latitude != null ? Number(row.latitude) : undefined,
     longitude: row.longitude != null ? Number(row.longitude) : undefined,
+    landingBackgroundUrl: row.landing_background_url ?? undefined,
+    landingBackgroundType: row.landing_background_type ?? undefined,
   };
 }
 
@@ -868,7 +870,7 @@ export const store = {
     return { success: true };
   },
 
-  async uploadFile(folder: 'menu' | 'alarms', file: File): Promise<{ success: boolean; url?: string; message?: string }> {
+  async uploadFile(folder: 'menu' | 'alarms' | 'branding', file: File): Promise<{ success: boolean; url?: string; message?: string }> {
     const ext = file.name.split('.').pop() || 'bin';
     const safeExt = ext.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
     const path = `${folder}/${crypto.randomUUID()}.${safeExt}`;
@@ -1421,7 +1423,7 @@ export const store = {
       guest_count: input.guestCount,
       date_time: input.dateTime,
       notes: input.notes || null,
-      status: 'confirmée',
+      status: 'en_attente',
     });
     await fetchAll();
     if (error) return { success: false, message: error.message };
@@ -1453,6 +1455,25 @@ export const store = {
   async cancelReservation(id: string) {
     await supabase.from('reservations').update({ status: 'annulée' }).eq('id', id);
     await fetchAll();
+  },
+
+  // Admin valide une demande de réservation envoyée par un client (passe de
+  // "en_attente" à "confirmée") — jusque-là, elle fait clignoter l'onglet
+  // Réservations.
+  async confirmReservation(id: string): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('reservations').update({ status: 'confirmée' }).eq('id', id);
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  // Supprime définitivement une réservation (différent de "annuler" qui la
+  // garde dans l'historique avec le statut "annulée").
+  async deleteReservation(id: string): Promise<{ success: boolean; message?: string }> {
+    const { error } = await supabase.from('reservations').delete().eq('id', id);
+    await fetchAll();
+    if (error) return { success: false, message: error.message };
+    return { success: true };
   },
 
   // --- WAITERS (= profiles avec role='serveur') ---
@@ -1541,6 +1562,8 @@ export const store = {
     if (updates.alarmVolume !== undefined) payload.alarm_volume = updates.alarmVolume;
     if (updates.latitude !== undefined) payload.latitude = updates.latitude;
     if (updates.longitude !== undefined) payload.longitude = updates.longitude;
+    if (updates.landingBackgroundUrl !== undefined) payload.landing_background_url = updates.landingBackgroundUrl;
+    if (updates.landingBackgroundType !== undefined) payload.landing_background_type = updates.landingBackgroundType;
 
     await supabase.from('restaurant_settings').update(payload).eq('id', true);
     await fetchAll();
